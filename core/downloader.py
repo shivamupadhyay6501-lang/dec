@@ -85,22 +85,50 @@ class APKDownloader:
 
         return details
 
+    def _resolve_aptoide_cdn(self, package_name: str) -> Optional[str]:
+        """
+        Queries Aptoide open catalog REST API for direct CDN APK download path.
+        Fast, unblocked, and returns direct APK binary URL.
+        """
+        try:
+            search_url = f"http://ws75.aptoide.com/api/7/apps/search/query={package_name}/limit=5"
+            r = requests.get(search_url, headers=self.HEADERS, timeout=6)
+            if r.status_code == 200:
+                items = r.json().get("datalist", {}).get("list", [])
+                for item in items:
+                    if item.get("package") == package_name:
+                        app_id = item.get("id")
+                        if app_id:
+                            r2 = requests.get(f"http://ws75.aptoide.com/api/7/app/get/app_id={app_id}", headers=self.HEADERS, timeout=6)
+                            if r2.status_code == 200:
+                                path = r2.json().get("nodes", {}).get("meta", {}).get("data", {}).get("file", {}).get("path")
+                                if path and path.startswith("http"):
+                                    return path
+        except Exception as e:
+            logger.debug(f"Aptoide resolver failed for {package_name}: {e}")
+        return None
+
     def get_download_stream_url(self, package_name: str) -> Tuple[Optional[str], str]:
         """
         Resolves direct download URL for the package across multiple public mirrors.
         Returns: (download_url, source_name)
         """
-        # List of mirror strategies to attempt
+        # Tier 1: Check Aptoide Direct CDN
+        aptoide_url = self._resolve_aptoide_cdn(package_name)
+        if aptoide_url:
+            return aptoide_url, "Aptoide Direct CDN"
+
+        # Tier 2: Multi-mirror fallback list
         mirrors = [
             (f"https://d.apkpure.net/b/APK/{package_name}?version=latest", "APKPure Mirror"),
-            (f"https://apkcombo.app/{package_name}/download/apk", "APKCombo Mirror"),
+            (f"https://f-droid.org/repo/{package_name}.apk", "F-Droid Mirror"),
             (f"https://d.apkpure.net/b/XAPK/{package_name}?version=latest", "APKPure XAPK Mirror"),
-            (f"https://f-droid.org/repo/{package_name}.apk", "F-Droid Mirror")
+            (f"https://apkcombo.app/{package_name}/download/apk", "APKCombo Mirror")
         ]
 
         for mirror_url, source_name in mirrors:
             try:
-                head_resp = requests.head(mirror_url, headers=self.HEADERS, timeout=6, allow_redirects=True)
+                head_resp = requests.head(mirror_url, headers=self.HEADERS, timeout=5, allow_redirects=True)
                 if head_resp.status_code == 200 and int(head_resp.headers.get("content-length", 0)) > 50000:
                     return head_resp.url, source_name
             except Exception:
@@ -131,16 +159,28 @@ class APKDownloader:
             progress_callback(f"Downloading from {source}...", 40)
 
         resp = None
+        # Try primary resolved mirror
         try:
-            resp = requests.get(download_url, headers=self.HEADERS, stream=True, timeout=15, allow_redirects=True)
+            resp = requests.get(download_url, headers=self.HEADERS, stream=True, timeout=12, allow_redirects=True)
         except Exception as e:
-            logger.warning(f"Mirror download failed ({e}). Checking alternative mirrors...")
-            # Fallback attempt
-            alt_url = f"https://apkcombo.app/{package_name}/download/apk"
-            try:
-                resp = requests.get(alt_url, headers=self.HEADERS, stream=True, timeout=15, allow_redirects=True)
-            except Exception:
-                pass
+            logger.warning(f"Primary mirror {source} timed out: {e}. Cascading to backup mirrors...")
+
+        # If primary failed, try secondary mirrors
+        if not resp or resp.status_code != 200:
+            fallback_sources = [
+                f"https://f-droid.org/repo/{package_name}.apk",
+                f"https://apkcombo.app/{package_name}/download/apk",
+                f"https://d.apkpure.net/b/APK/{package_name}?version=latest"
+            ]
+            for fb_url in fallback_sources:
+                try:
+                    r_fb = requests.get(fb_url, headers=self.HEADERS, stream=True, timeout=8, allow_redirects=True)
+                    if r_fb.status_code == 200:
+                        resp = r_fb
+                        source = f"Backup Mirror ({fb_url})"
+                        break
+                except Exception:
+                    continue
 
         if not resp or resp.status_code != 200:
             raise RuntimeError(

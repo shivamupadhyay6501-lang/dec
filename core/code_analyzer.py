@@ -84,6 +84,37 @@ class CodeAnalyzer:
             "remediation": "Use `Context.MODE_PRIVATE` and migrate to `EncryptedSharedPreferences` / `EncryptedFile` from the Jetpack Security library."
         },
 
+        {
+            "id": "CODE-INTENT-001",
+            "name": "Insecure Mutable PendingIntent Flag (CVE-2021-0306 / Intent Hijacking)",
+            "pattern": r"PendingIntent\.(?:getActivity|getBroadcast|getService)\s*\([^)]*FLAG_MUTABLE",
+            "severity": "HIGH",
+            "category": "Inter-Process Communication (IPC)",
+            "confidence": 0.95,
+            "impact": "A mutable PendingIntent allows external third-party apps on the device to intercept or modify intent extras and action parameters, leading to privilege escalation.",
+            "remediation": "Use `PendingIntent.FLAG_IMMUTABLE` unless intent mutation is strictly required. If mutation is needed, explicitly set the target component name on the base intent."
+        },
+        {
+            "id": "CODE-CRYPTO-004",
+            "name": "Hardcoded Symmetric Cryptographic Key / IV",
+            "pattern": r"new\s+SecretKeySpec\s*\(\s*[\"'][^\"']+[\"']\.getBytes\(\)",
+            "severity": "HIGH",
+            "category": "Cryptographic Weakness",
+            "confidence": 0.98,
+            "impact": "Static symmetric encryption keys embedded in the binary allow trivial decryption of protected data or tokens across all app instances.",
+            "remediation": "Generate unique encryption keys at runtime and store them securely inside the hardware-backed Android Keystore."
+        },
+        {
+            "id": "CODE-RANDOM-001",
+            "name": "Insecure Random Number Generator for Security Operations",
+            "pattern": r"new\s+java\.util\.Random\s*\(",
+            "severity": "MEDIUM",
+            "category": "Cryptographic Weakness",
+            "confidence": 0.90,
+            "impact": "`java.util.Random` produces predictable pseudorandom sequences. An attacker can predict session tokens, nonces, or reset codes.",
+            "remediation": "Replace `java.util.Random` with `java.security.SecureRandom`."
+        },
+
         # --- 🟡 MEDIUM / 🔵 LOW VULNERABILITIES ---
         {
             "id": "CODE-CRYPTO-003",

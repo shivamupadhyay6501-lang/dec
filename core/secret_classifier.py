@@ -55,6 +55,36 @@ class SecretClassifier:
             "remediation": "Roll this secret key in the Stripe Dashboard immediately and restrict live operations to your backend."
         },
         {
+            "id": "SEC-RAZORPAY-001",
+            "name": "Razorpay Live Key Secret",
+            "pattern": r"(?i)(?:rzp_live|razorpay_secret|key_secret)\s*[:=]\s*[\"']([a-zA-Z0-9]{20,32})[\"']",
+            "severity": "CRITICAL",
+            "category": "Payment Gateway Credential",
+            "confidence": 0.95,
+            "impact": "Enables unauthorized refund issuance, bank payouts, and payment signature manipulation via Razorpay API.",
+            "remediation": "Immediately regenerate the Key Secret in Razorpay Dashboard. Never store the Key Secret in the mobile client."
+        },
+        {
+            "id": "SEC-PAYTM-001",
+            "name": "PayTM Merchant Secret Key",
+            "pattern": r"(?i)(?:paytm_merchant_key|merchant_key|paytm_secret)\s*[:=]\s*[\"']([a-zA-Z0-9!@#$%^&*]{16,32})[\"']",
+            "severity": "CRITICAL",
+            "category": "Payment Gateway Credential",
+            "confidence": 0.92,
+            "impact": "Allows spoofing transaction verification checksums and compromising payment state machines.",
+            "remediation": "Rotate your PayTM Merchant Key and isolate checksum generation to your backend server."
+        },
+        {
+            "id": "SEC-GITHUB-001",
+            "name": "GitHub Personal Access Token",
+            "pattern": r"(ghp_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9_]{82})",
+            "severity": "CRITICAL",
+            "category": "Source Code Access Token",
+            "confidence": 0.99,
+            "impact": "Grants unauthorized access to private GitHub repositories, deployment workflows, and source code.",
+            "remediation": "Revoke the Personal Access Token immediately under GitHub Settings -> Developer Settings."
+        },
+        {
             "id": "SEC-SUPABASE-001",
             "name": "Supabase Service Role Secret Key",
             "pattern": r"(?i)supabase.*(?:service_role|service_key)\s*[:=]\s*[\"']([a-zA-Z0-9_\-\.]{50,})[\"']",
