@@ -1,0 +1,112 @@
+name: APK Security Audit & Executive Report
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Play Store URL or Package ID (e.g. com.tution_plus or com.spotify.music)'
+        required: true
+        default: 'com.tution_plus'
+        type: string
+      gemini_api_key:
+        description: 'Optional Gemini API Key (defaults to repo secret GEMINI_API_KEY)'
+        required: false
+        type: string
+
+jobs:
+  audit:
+    name: Automated Security Audit Pipeline
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17 (for JADX Decompiler)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Execute Security Audit Pipeline
+        id: run_audit
+        env:
+          GEMINI_API_KEY: ${{ inputs.gemini_api_key || secrets.GEMINI_API_KEY }}
+          GOOGLE_API_KEY: ${{ inputs.gemini_api_key || secrets.GEMINI_API_KEY }}
+        run: |
+          mkdir -p output_reports
+          python -c "
+          import os
+          import json
+          from core.orchestrator import AuditOrchestrator
+          
+          target = '${{ inputs.target }}'.strip()
+          print(f'[GITHUB ACTION] Starting cloud audit for: {target}')
+          
+          orchestrator = AuditOrchestrator()
+          report = orchestrator.run_audit(target, is_url=True)
+          
+          # Save JSON
+          with open('output_reports/report.json', 'w', encoding='utf-8') as f:
+              json.dump(report, f, indent=2)
+              
+          # Format Markdown Summary for GitHub Actions Run Page
+          score_data = report.get('score_data', {})
+          app_info = report.get('app_info', {})
+          tech_info = report.get('tech_info', {})
+          counts = score_data.get('counts', {})
+          
+          md_lines = [
+              '# 🛡️ APK Security Intelligence Audit Report',
+              f'**Target App:** `{app_info.get(\"title\", \"N/A\")}` (`{app_info.get(\"package\", target)}`)',
+              f'**Framework:** `{tech_info.get(\"primary_framework\", \"Native\")} ` | **Version:** `{app_info.get(\"version_name\", \"1.0\")} `',
+              '',
+              f'## 📊 Security Posture Score: **{score_data.get(\"score\", 0)}/100** ({score_data.get(\"risk_level\", \"UNKNOWN\")})',
+              '',
+              '| Severity | Count |',
+              '| :--- | :--- |',
+              f'| 🔴 CRITICAL | {counts.get(\"CRITICAL\", 0)} |',
+              f'| 🟠 HIGH | {counts.get(\"HIGH\", 0)} |',
+              f'| 🟡 MEDIUM | {counts.get(\"MEDIUM\", 0)} |',
+              f'| 🔵 LOW | {counts.get(\"LOW\", 0)} |',
+              f'| ⚪ INFO | {counts.get(\"INFO\", 0)} |',
+              '',
+              '## 📋 Executive Summary',
+              report.get('executive_summary', 'No summary available.'),
+              '',
+              '## 🔥 Top Remediation Priorities'
+          ]
+          
+          for prio in report.get('fix_these_first', []):
+              md_lines.append(f'- **#{prio.get(\"priority\")} [{prio.get(\"severity\")}] {prio.get(\"title\")}**')
+              md_lines.append(f'  - *Impact:* {prio.get(\"potential_impact\")}')
+              md_lines.append(f'  - *Action Required:* {prio.get(\"action_required\")}')
+              
+          md_content = '\n'.join(md_lines)
+          with open('output_reports/summary.md', 'w', encoding='utf-8') as f:
+              f.write(md_content)
+              
+          # Append to GitHub Step Summary
+          if 'GITHUB_STEP_SUMMARY' in os.environ:
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as sf:
+                  sf.write(md_content)
+          "
+
+      - name: Upload Security Reports as Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-audit-report-${{ github.run_id }}
+          path: output_reports/

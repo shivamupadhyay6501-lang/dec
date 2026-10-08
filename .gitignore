@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# Environment Variables & Keys
+.env
+.env.local
+
+# Scans, Workspace & Artifacts
+workspace/
+tools/jadx/
+tools/*.zip
+data/audits.db
+data/*.db
+data/temp/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

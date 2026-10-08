@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>APK Security Intelligence & Executive Auditor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="app-layout">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-icon">🛡️</div>
+                <div class="brand-text">
+                    <h2>DECRYPTOR</h2>
+                    <span>APK Security Intelligence</span>
+                </div>
+            </div>
+
+            <nav class="nav-menu">
+                <button class="nav-item active" data-tab="scanner">
+                    <span class="icon">⚡</span> Scan New APK
+                </button>
+                <button class="nav-item" data-tab="dashboard" id="nav-dashboard-btn">
+                    <span class="icon">📊</span> Executive Report
+                </button>
+                <button class="nav-item" data-tab="history">
+                    <span class="icon">🕒</span> Audit History & Diffs
+                </button>
+                <button class="nav-item" data-tab="settings">
+                    <span class="icon">⚙️</span> Settings & AI Key
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="ai-status">
+                    <span class="status-dot online"></span>
+                    <span class="status-label" id="ai-status-text">Gemini Engine Ready</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- TAB 1: SCANNER TRIGGER -->
+            <section id="tab-scanner" class="tab-pane active">
+                <div class="hero-banner">
+                    <h1>Automated Mobile Security Intelligence</h1>
+                    <p>Static bytecode decompilation, secret classification, and Gemini executive risk reporting in 30 seconds.</p>
+                </div>
+
+                <div class="scanner-box">
+                    <div class="input-toggle">
+                        <button class="toggle-btn active" id="toggle-url">Play Store URL</button>
+                        <button class="toggle-btn" id="toggle-file">Upload APK File</button>
+                    </div>
+
+                    <!-- URL Input Form -->
+                    <div id="url-scan-form" class="scan-form-view">
+                        <div class="input-group">
+                            <input type="text" id="playstore-url-input" placeholder="e.g. https://play.google.com/store/apps/details?id=com.spotify.music or com.whatsapp" autocomplete="off">
+                            <button id="start-url-scan-btn" class="btn btn-primary">
+                                <span class="btn-text">⚡ Start Security Audit</span>
+                            </button>
+                        </div>
+                        <div class="quick-examples">
+                            <span>Try sample targets:</span>
+                            <a href="#" class="sample-link" data-pkg="com.spotify.music">Spotify</a>
+                            <a href="#" class="sample-link" data-pkg="com.instagram.android">Instagram</a>
+                            <a href="#" class="sample-link" data-pkg="com.whatsapp">WhatsApp</a>
+                        </div>
+                    </div>
+
+                    <!-- File Upload Form -->
+                    <div id="file-scan-form" class="scan-form-view hidden">
+                        <div class="drop-zone" id="apk-drop-zone">
+                            <div class="drop-icon">📦</div>
+                            <h3>Drag and drop an APK or XAPK here</h3>
+                            <p>or click to browse your local computer (.apk, .xapk, .zip)</p>
+                            <input type="file" id="apk-file-input" accept=".apk,.xapk,.zip" hidden>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Scan Progress Stream -->
+                <div id="live-scan-card" class="live-scan-card hidden">
+                    <div class="live-scan-header">
+                        <div class="pulse-indicator"></div>
+                        <h3 id="live-scan-status">Auditing Application...</h3>
+                        <span id="live-scan-percent" class="percent-badge">0%</span>
+                    </div>
+                    <div class="progress-bar-bg">
+                        <div id="live-progress-fill" class="progress-bar-fill" style="width: 0%"></div>
+                    </div>
+                    <div class="terminal-logs" id="terminal-logs">
+                        <div class="log-line info">[INIT] Security worker ready. Awaiting task...</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 2: EXECUTIVE REPORT DASHBOARD -->
+            <section id="tab-dashboard" class="tab-pane hidden">
+                <div class="dashboard-header">
+                    <div class="app-summary">
+                        <div class="app-icon-box" id="report-app-icon">📱</div>
+                        <div>
+                            <h1 id="report-app-title">Application Audit</h1>
+                            <div class="app-meta-tags">
+                                <span class="tag" id="report-package">com.example.app</span>
+                                <span class="tag" id="report-version">v1.0.0</span>
+                                <span class="tag" id="report-framework">Flutter</span>
+                                <span class="tag" id="report-sdk">API 34</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="header-actions">
+                        <button class="btn btn-secondary" id="export-html-btn">📥 Export HTML Report</button>
+                        <button class="btn btn-primary" id="re-scan-btn">🔄 Rescan</button>
+                    </div>
+                </div>
+
+                <!-- Score & Statistics Grid -->
+                <div class="stats-grid">
+                    <!-- Security Score Dial -->
+                    <div class="stat-card score-card">
+                        <div class="score-circle-wrapper">
+                            <svg class="score-svg" viewBox="0 0 120 120">
+                                <circle class="score-bg" cx="60" cy="60" r="50"></circle>
+                                <circle class="score-progress" id="score-meter" cx="60" cy="60" r="50"></circle>
+                            </svg>
+                            <div class="score-number-box">
+                                <span id="report-score-num">--</span>
+                                <span class="score-denominator">/ 100</span>
+                            </div>
+                        </div>
+                        <div class="score-label-box">
+                            <h4 id="report-risk-level">CALCULATING...</h4>
+                            <span class="score-subtext">Overall Security Posture</span>
+                        </div>
+                    </div>
+
+                    <!-- Severity Counters -->
+                    <div class="stat-card severity-card sev-critical">
+                        <div class="sev-icon">🔴</div>
+                        <div class="sev-count" id="count-critical">0</div>
+                        <div class="sev-label">Critical Risks</div>
+                    </div>
+
+                    <div class="stat-card severity-card sev-high">
+                        <div class="sev-icon">🟠</div>
+                        <div class="sev-count" id="count-high">0</div>
+                        <div class="sev-label">High Risks</div>
+                    </div>
+
+                    <div class="stat-card severity-card sev-medium">
+                        <div class="sev-icon">🟡</div>
+                        <div class="sev-count" id="count-medium">0</div>
+                        <div class="sev-label">Medium Risks</div>
+                    </div>
+
+                    <div class="stat-card severity-card sev-low">
+                        <div class="sev-icon">🔵</div>
+                        <div class="sev-count" id="count-low">0</div>
+                        <div class="sev-label">Low & Info</div>
+                    </div>
+                </div>
+
+                <!-- Executive Briefing -->
+                <div class="card executive-briefing-card">
+                    <div class="card-header">
+                        <h2>📋 Executive Briefing</h2>
+                        <span class="ai-badge" id="report-ai-badge">Gemini 2.5 Flash</span>
+                    </div>
+                    <div class="card-body">
+                        <p id="report-executive-summary" class="executive-text">
+                            Run a scan to generate the executive briefing.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- "Fix These First" Priority Card Section -->
+                <div class="card priorities-card">
+                    <div class="card-header">
+                        <h2>🔥 Fix These FIRST (Immediate Action Required)</h2>
+                        <span class="badge-pill">Top Priorities</span>
+                    </div>
+                    <div class="card-body" id="priorities-container">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
+                <!-- Detailed Findings Matrix -->
+                <div class="card findings-card">
+                    <div class="card-header findings-toolbar">
+                        <h2>🔍 Detailed Security Findings (<span id="findings-total-count">0</span>)</h2>
+                        <div class="filter-group">
+                            <button class="filter-btn active" data-filter="ALL">All</button>
+                            <button class="filter-btn" data-filter="CRITICAL">🔴 Critical</button>
+                            <button class="filter-btn" data-filter="HIGH">🟠 High</button>
+                            <button class="filter-btn" data-filter="MEDIUM">🟡 Medium</button>
+                            <button class="filter-btn" data-filter="LOW">🔵 Low</button>
+                        </div>
+                    </div>
+                    <div class="card-body" id="findings-container">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 3: AUDIT HISTORY & REGRESSION DIFFS -->
+            <section id="tab-history" class="tab-pane hidden">
+                <div class="dashboard-header">
+                    <div>
+                        <h1>Audit History & Release Regression</h1>
+                        <p>Track vulnerability deltas across app versions (e.g. v4.7 vs v4.8).</p>
+                    </div>
+                </div>
+
+                <div class="history-table-wrapper">
+                    <table class="history-table" id="history-table">
+                        <thead>
+                            <tr>
+                                <th>Scan ID</th>
+                                <th>Target App</th>
+                                <th>Version</th>
+                                <th>Score</th>
+                                <th>Critical</th>
+                                <th>High</th>
+                                <th>Date</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="history-tbody">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Regression Diff Modal/Container -->
+                <div id="diff-container" class="card diff-card hidden">
+                    <div class="card-header">
+                        <h2>🔄 Version Regression Comparison</h2>
+                        <button class="btn btn-secondary btn-sm" id="close-diff-btn">✕ Close</button>
+                    </div>
+                    <div class="card-body" id="diff-body">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 4: SETTINGS & GEMINI KEY -->
+            <section id="tab-settings" class="tab-pane hidden">
+                <div class="card settings-card">
+                    <h2>⚙️ Intelligence & AI Engine Settings</h2>
+                    <p style="color: var(--text-muted); margin-bottom: 20px;">
+                        Configure your Google AI Studio Gemini API Key for generative executive synthesis ($0 free tier).
+                    </p>
+                    
+                    <div class="form-group">
+                        <label for="gemini-key-input">Gemini API Key (Optional / Free):</label>
+                        <input type="password" id="gemini-key-input" placeholder="AIzaSy..." class="form-control">
+                        <small style="color: var(--text-muted); display: block; margin-top: 6px;">
+                            Get a free key at <a href="https://aistudio.google.com/" target="_blank" style="color: var(--primary);">aistudio.google.com</a>. If left blank, the scanner will use the built-in heuristic synthesizer.
+                        </small>
+                    </div>
+
+                    <button id="save-settings-btn" class="btn btn-primary" style="margin-top: 16px;">
+                        💾 Save Settings
+                    </button>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
