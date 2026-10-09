@@ -92,6 +92,12 @@ class AuditOrchestrator:
             decompiled_dir = os.path.join(job_dir, "decompiled")
             decompile_res = self.decompiler.decompile_apk(apk_path, decompiled_dir, progress_callback=log_progress)
 
+            if unpack_res["total_files"] == 0 and not decompile_res.get("has_sources"):
+                raise RuntimeError(
+                    f"APK archive appears empty or corrupted (0 classes/assets unpacked). "
+                    f"Please provide a valid .apk or .xapk file."
+                )
+
             # Step 3: Detect Technology Stack
             log_progress("Detecting framework, native architectures & cloud SDKs...", 60)
             tech_info = self.tech_detector.detect(raw_unpack_dir, unpack_res["files"])
