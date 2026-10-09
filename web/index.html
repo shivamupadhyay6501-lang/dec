@@ -408,6 +408,7 @@
     <!-- ONBOARDING MODAL (First Visit) -->
     <div id="onboarding-modal" class="modal-backdrop hidden">
         <div class="modal-card">
+            <button type="button" class="modal-close-btn" onclick="closeOnboardingModal()" title="Skip / Close">&times;</button>
             <div class="modal-header">
                 <div class="modal-icon">🛡️</div>
                 <h2>Welcome to Security Intelligence</h2>
@@ -440,6 +441,7 @@
     <!-- USER PROFILE / ACCOUNT EDIT MODAL -->
     <div id="profile-modal" class="modal-backdrop hidden">
         <div class="modal-card">
+            <button type="button" class="modal-close-btn" onclick="closeProfileModal()" title="Close">&times;</button>
             <div class="modal-header">
                 <div class="modal-icon">👤</div>
                 <h2>Auditor Account Profile</h2>
@@ -465,6 +467,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=2.2"></script>
+    <script src="/static/app.js?v=2.5"></script>
 </body>
 </html>

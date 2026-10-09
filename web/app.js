@@ -667,14 +667,22 @@ function initUserAccount() {
     const saved = localStorage.getItem('audit_user_account');
     if (!saved) {
         generateNewAccountId();
-        document.getElementById('onboarding-modal')?.classList.remove('hidden');
+        const modal = document.getElementById('onboarding-modal');
+        if (modal) {
+            modal.classList.remove('hidden');
+            modal.style.display = 'flex';
+        }
     } else {
         try {
             currentAccount = JSON.parse(saved);
             updateUserBadgeUI();
         } catch (e) {
             generateNewAccountId();
-            document.getElementById('onboarding-modal')?.classList.remove('hidden');
+            const modal = document.getElementById('onboarding-modal');
+            if (modal) {
+                modal.classList.remove('hidden');
+                modal.style.display = 'flex';
+            }
         }
     }
 }
@@ -701,7 +709,11 @@ async function submitOnboarding() {
     localStorage.setItem('audit_user_account', JSON.stringify(currentAccount));
 
     updateUserBadgeUI();
-    document.getElementById('onboarding-modal')?.classList.add('hidden');
+    const modal = document.getElementById('onboarding-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.style.display = 'none';
+    }
 
     try {
         await fetch('/api/user/account', {
@@ -715,6 +727,20 @@ async function submitOnboarding() {
     loadAuditHistory();
 }
 
+function closeOnboardingModal() {
+    const modal = document.getElementById('onboarding-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.style.display = 'none';
+    }
+    if (!currentAccount) {
+        const accountId = generateNewAccountId();
+        currentAccount = { name: 'Security Researcher', account_id: accountId, created_at: new Date().toISOString() };
+        localStorage.setItem('audit_user_account', JSON.stringify(currentAccount));
+        updateUserBadgeUI();
+    }
+}
+
 function updateUserBadgeUI() {
     if (!currentAccount) return;
     const nameElem = document.getElementById('sidebar-user-name');
@@ -726,21 +752,28 @@ function updateUserBadgeUI() {
 }
 
 function openProfileModal() {
-    if (!currentAccount) return;
     const nameInput = document.getElementById('profile-name-input');
     const accInput = document.getElementById('profile-account-input');
-    if (nameInput) nameInput.value = currentAccount.name || '';
-    if (accInput) accInput.value = currentAccount.account_id || '';
-    document.getElementById('profile-modal')?.classList.remove('hidden');
+    if (nameInput) nameInput.value = currentAccount?.name || '';
+    if (accInput) accInput.value = currentAccount?.account_id || generateNewProfileAccountId();
+    const modal = document.getElementById('profile-modal');
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.style.display = 'flex';
+    }
 }
 
 function closeProfileModal() {
-    document.getElementById('profile-modal')?.classList.add('hidden');
+    const modal = document.getElementById('profile-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.style.display = 'none';
+    }
 }
 
 async function saveProfileChanges() {
     const name = document.getElementById('profile-name-input')?.value.trim() || 'Security Researcher';
-    const accountId = document.getElementById('profile-account-input')?.value.trim() || currentAccount?.account_id;
+    const accountId = document.getElementById('profile-account-input')?.value.trim() || (currentAccount?.account_id || generateNewAccountId());
 
     currentAccount = { ...currentAccount, name: name, account_id: accountId };
     localStorage.setItem('audit_user_account', JSON.stringify(currentAccount));
@@ -1219,6 +1252,7 @@ window.syncCloudRuns = syncCloudRuns;
 window.generateNewAccountId = generateNewAccountId;
 window.generateNewProfileAccountId = generateNewProfileAccountId;
 window.submitOnboarding = submitOnboarding;
+window.closeOnboardingModal = closeOnboardingModal;
 window.openProfileModal = openProfileModal;
 window.closeProfileModal = closeProfileModal;
 window.saveProfileChanges = saveProfileChanges;

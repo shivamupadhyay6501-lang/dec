@@ -36,6 +36,17 @@
     padding: 0;
 }
 
+.hidden {
+    display: none !important;
+}
+
+.modal-backdrop.hidden {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
 body {
     font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     background-color: var(--bg-main);
@@ -1362,6 +1373,7 @@ body {
 }
 
 .modal-card {
+    position: relative;
     background: #0d1322;
     border: 1px solid var(--border-light);
     border-radius: var(--radius-lg);
@@ -1370,6 +1382,31 @@ body {
     max-width: 480px;
     overflow: hidden;
     animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal-close-btn {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.15s ease;
+    z-index: 10;
+}
+
+.modal-close-btn:hover {
+    background: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+    border-color: #ef4444;
 }
 
 .modal-header {
