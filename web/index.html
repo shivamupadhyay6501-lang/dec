@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>APK Security Intelligence & Executive Auditor</title>
+    <title>Decryptor - Security Intelligence & Executive Auditor</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -17,13 +17,13 @@
                 <div class="brand-icon">🛡️</div>
                 <div class="brand-text">
                     <h2>DECRYPTOR</h2>
-                    <span>APK Security Intelligence</span>
+                    <span>Security Intelligence</span>
                 </div>
             </div>
 
             <nav class="nav-menu">
                 <button class="nav-item active" data-tab="scanner">
-                    <span class="icon">⚡</span> Scan New APK
+                    <span class="icon">⚡</span> New Security Audit
                 </button>
                 <button class="nav-item" data-tab="dashboard" id="nav-dashboard-btn">
                     <span class="icon">📊</span> Executive Report
@@ -49,22 +49,39 @@
             <!-- TAB 1: SCANNER TRIGGER -->
             <section id="tab-scanner" class="tab-pane active">
                 <div class="hero-banner">
-                    <h1>Automated Mobile Security Intelligence</h1>
-                    <p>Static bytecode decompilation, secret classification, and Gemini executive risk reporting in 30 seconds.</p>
+                    <h1>Automated Application & Web Security Intelligence</h1>
+                    <p>Static bytecode decompilation, client-side JS secret classification, headers, and Gemini executive risk reporting.</p>
                 </div>
 
                 <div class="scanner-box">
                     <div class="input-toggle">
-                        <button class="toggle-btn active" id="toggle-url">Play Store URL</button>
-                        <button class="toggle-btn" id="toggle-file">Upload APK File</button>
+                        <button class="toggle-btn active" id="toggle-web">🌐 Website URL</button>
+                        <button class="toggle-btn" id="toggle-url">📱 Play Store / App</button>
+                        <button class="toggle-btn" id="toggle-file">📦 Upload APK File</button>
                     </div>
 
-                    <!-- URL Input Form -->
-                    <div id="url-scan-form" class="scan-form-view">
+                    <!-- Website URL Input Form -->
+                    <div id="web-scan-form" class="scan-form-view">
+                        <div class="input-group">
+                            <input type="text" id="web-url-input" placeholder="e.g. https://example.com or https://my-webapp.com" autocomplete="off">
+                            <button id="start-web-scan-btn" class="btn btn-primary">
+                                <span class="btn-text">⚡ Audit Website</span>
+                            </button>
+                        </div>
+                        <div class="quick-examples">
+                            <span>Try sample targets:</span>
+                            <a href="#" class="sample-web-link" data-url="https://example.com">example.com</a>
+                            <a href="#" class="sample-web-link" data-url="https://stripe.com">stripe.com</a>
+                            <a href="#" class="sample-web-link" data-url="https://news.ycombinator.com">Hacker News</a>
+                        </div>
+                    </div>
+
+                    <!-- Mobile URL Input Form -->
+                    <div id="url-scan-form" class="scan-form-view hidden">
                         <div class="input-group">
                             <input type="text" id="playstore-url-input" placeholder="e.g. https://play.google.com/store/apps/details?id=com.spotify.music or com.whatsapp" autocomplete="off">
                             <button id="start-url-scan-btn" class="btn btn-primary">
-                                <span class="btn-text">⚡ Start Security Audit</span>
+                                <span class="btn-text">⚡ Audit Mobile App</span>
                             </button>
                         </div>
                         <div class="quick-examples">
@@ -90,7 +107,7 @@
                 <div id="live-scan-card" class="live-scan-card hidden">
                     <div class="live-scan-header">
                         <div class="pulse-indicator"></div>
-                        <h3 id="live-scan-status">Auditing Application...</h3>
+                        <h3 id="live-scan-status">Auditing Target...</h3>
                         <span id="live-scan-percent" class="percent-badge">0%</span>
                     </div>
                     <div class="progress-bar-bg">
@@ -106,10 +123,11 @@
             <section id="tab-dashboard" class="tab-pane hidden">
                 <div class="dashboard-header">
                     <div class="app-summary">
-                        <div class="app-icon-box" id="report-app-icon">📱</div>
+                        <div class="app-icon-box" id="report-app-icon">🛡️</div>
                         <div>
-                            <h1 id="report-app-title">Application Audit</h1>
+                            <h1 id="report-app-title">Security Audit Report</h1>
                             <div class="app-meta-tags">
+                                <span class="tag" id="report-type-badge">📱 Mobile APK</span>
                                 <span class="tag" id="report-package">com.example.app</span>
                                 <span class="tag" id="report-version">v1.0.0</span>
                                 <span class="tag" id="report-framework">Flutter</span>
@@ -119,8 +137,9 @@
                     </div>
 
                     <div class="header-actions">
-                        <button class="btn btn-secondary" id="export-html-btn">📥 Export HTML Report</button>
-                        <button class="btn btn-primary" id="re-scan-btn">🔄 Rescan</button>
+                        <button class="btn btn-primary" id="export-pdf-btn">📄 Export PDF</button>
+                        <button class="btn btn-secondary" id="export-html-btn">📥 HTML Report</button>
+                        <button class="btn btn-secondary" id="re-scan-btn">🔄 New Scan</button>
                     </div>
                 </div>
 
@@ -217,8 +236,9 @@
                 <div class="dashboard-header">
                     <div>
                         <h1>Audit History & Release Regression</h1>
-                        <p>Track vulnerability deltas across app versions (e.g. v4.7 vs v4.8).</p>
+                        <p>Access past audits, print PDF reports, and track vulnerability deltas across releases.</p>
                     </div>
+                    <button class="btn btn-secondary" onclick="loadAuditHistory()">🔄 Refresh History</button>
                 </div>
 
                 <div class="history-table-wrapper">
@@ -226,7 +246,8 @@
                         <thead>
                             <tr>
                                 <th>Scan ID</th>
-                                <th>Target App</th>
+                                <th>Target</th>
+                                <th>Type</th>
                                 <th>Version</th>
                                 <th>Score</th>
                                 <th>Critical</th>

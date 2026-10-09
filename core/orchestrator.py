@@ -13,6 +13,7 @@ from core.manifest_analyzer import ManifestAnalyzer
 from core.secret_classifier import SecretClassifier
 from core.code_analyzer import CodeAnalyzer
 from core.cloud_prober import CloudProber
+from core.web_scanner import WebsiteScanner
 from ai.gemini_engine import GeminiAuditor
 from database.db import AuditDatabase
 
@@ -23,6 +24,7 @@ class AuditOrchestrator:
     Coordinates the full end-to-end security audit pipeline:
     Download -> Decompile -> Tech Detect -> Manifest Audit -> Secret Classification ->
     Code Analysis -> Cloud Probing -> Gemini Executive Synthesis -> Database Storage.
+    Also handles live Website Security Audits.
     """
 
     def __init__(self, workspace_dir: Optional[str] = None):
@@ -40,6 +42,7 @@ class AuditOrchestrator:
         self.secret_classifier = SecretClassifier()
         self.code_analyzer = CodeAnalyzer()
         self.cloud_prober = CloudProber()
+        self.web_scanner = WebsiteScanner()
         self.ai_auditor = GeminiAuditor()
         self.db = AuditDatabase()
 
@@ -173,3 +176,56 @@ class AuditOrchestrator:
         finally:
             # Clean up temp workspace files if needed, keep scan artifacts
             pass
+
+    def run_web_audit(
+        self,
+        target_url: str,
+        progress_callback: Optional[Callable[[str, int], None]] = None
+    ) -> Dict[str, Any]:
+        """
+        Executes a complete automated security audit on a website / web application.
+        """
+        scan_id = f"SCAN-WEB-{uuid.uuid4().hex[:6].upper()}"
+
+        def log_progress(msg: str, pct: int):
+            logger.info(f"[{pct}%] {msg}")
+            if progress_callback:
+                progress_callback(msg, pct)
+
+        try:
+            log_progress(f"Initializing Web Security Audit Pipeline for '{target_url}'...", 5)
+            web_res = self.web_scanner.audit_website(target_url, progress_callback=log_progress)
+
+            app_info = web_res["app_info"]
+            tech_info = web_res["tech_info"]
+            findings = web_res["findings"]
+
+            log_progress("Synthesizing executive security briefing and remediation matrix with AI...", 95)
+            executive_report = self.ai_auditor.generate_executive_report(app_info, tech_info, findings)
+
+            final_report = {
+                "scan_id": scan_id,
+                "timestamp": datetime.utcnow().isoformat(),
+                "app_info": app_info,
+                "tech_info": tech_info,
+                "score_data": executive_report["score_data"],
+                "executive_summary": executive_report["executive_summary"],
+                "fix_these_first": executive_report["fix_these_first"],
+                "architectural_recommendations": executive_report["architectural_recommendations"],
+                "ai_engine": executive_report.get("generated_by", "Gemini 2.5 Flash"),
+                "manifest_summary": {
+                    "permissions_count": 0,
+                    "exported_components_count": 0,
+                    "unguarded_exported_count": 0,
+                    "deep_links_count": 0
+                },
+                "findings": findings
+            }
+
+            self.db.save_scan(final_report)
+            log_progress(f"Web Audit completed! Security Score: {final_report['score_data']['score']}/100", 100)
+            return final_report
+        except Exception as e:
+            logger.error(f"Web audit failed with error: {traceback.format_exc()}")
+            raise
+

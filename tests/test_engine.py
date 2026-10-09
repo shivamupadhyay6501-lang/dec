@@ -6,8 +6,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.secret_classifier import SecretClassifier
 from core.code_analyzer import CodeAnalyzer
+from core.web_scanner import WebsiteScanner
 from ai.gemini_engine import GeminiAuditor
 from database.db import AuditDatabase
+from server.main import generate_report_html
 
 def test_secret_classifier():
     sc = SecretClassifier()
@@ -70,6 +72,31 @@ def test_code_analyzer():
     assert any(f['id'] == 'CODE-CRYPTO-002' for f in findings), "AES ECB Mode should be detected"
     print("[PASS] Code Analyzer Verified Successfully!\n")
 
+def test_website_scanner():
+    ws = WebsiteScanner()
+    # Test with synthetic headers
+    headers = {
+        "server": "nginx/1.18.0",
+        "access-control-allow-origin": "*",
+        "access-control-allow-credentials": "true"
+    }
+    findings = ws.audit_security_headers(headers, "https://test-target.com")
+    print(f"[TEST] Website Header Audit found {len(findings)} issues.")
+    assert any(f['id'] == 'WEB-HSTS-001' for f in findings), "Missing HSTS should be detected"
+    assert any(f['id'] == 'WEB-CSP-001' for f in findings), "Missing CSP should be detected"
+    assert any(f['id'] == 'WEB-CORS-001' for f in findings), "Wildcard CORS with credentials should be detected"
+    
+    # Test cookie audit
+    raw_headers = [
+        ("Set-Cookie", "sessionid=abc12345; Path=/"),
+        ("Set-Cookie", "token=secret987; Secure; SameSite=Strict")
+    ]
+    cookie_findings = ws.audit_cookies(raw_headers, "https://test-target.com")
+    print(f"[TEST] Website Cookie Audit found {len(cookie_findings)} issues.")
+    assert any(f['id'] == 'WEB-COOKIE-001' for f in cookie_findings), "Missing Secure flag should be detected"
+    assert any(f['id'] == 'WEB-COOKIE-002' for f in cookie_findings), "Missing HttpOnly flag should be detected"
+    print("[PASS] Website Security Auditor Verified Successfully!\n")
+
 def test_gemini_and_scoring():
     ga = GeminiAuditor()
     dummy_findings = [
@@ -120,10 +147,28 @@ def test_database_and_diff():
     assert diff['resolved_count'] == 1
     print("[PASS] Regression History & Diffing Engine Verified Successfully!\n")
 
+def test_html_and_pdf_report_render():
+    scan = {
+        "scan_id": "SCAN-TEST-PDF",
+        "app_info": {"package": "example.com", "title": "Example Domain", "version_name": "HTTP 200", "is_web": True},
+        "tech_info": {"primary_framework": "Web (Cloudflare)"},
+        "score_data": {"score": 75, "rating": "MODERATE RISK", "counts": {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 1, "INFO": 0}},
+        "executive_summary": "Executive briefing test content.",
+        "fix_these_first": [{"priority": 1, "title": "Deploy Strict-Transport-Security (HSTS)", "severity": "HIGH", "potential_impact": "Downgrade", "action_required": "Add HSTS header"}],
+        "findings": [{"id": "WEB-HSTS-001", "title": "Missing HSTS", "severity": "HIGH", "category": "Transport", "impact": "MitM", "remediation": "Add header"}]
+    }
+    html = generate_report_html(scan, auto_print=True)
+    assert "Executive Security Report" in html
+    assert "Example Domain" in html
+    assert "Deploy Strict-Transport-Security (HSTS)" in html
+    assert "@media print" in html
+    print("[PASS] Beautiful Printable PDF & HTML Report Generator Verified Successfully!\n")
+
 if __name__ == "__main__":
     test_secret_classifier()
     test_code_analyzer()
+    test_website_scanner()
     test_gemini_and_scoring()
     test_database_and_diff()
-    print("[SUCCESS] ALL CORE SECURITY MODULES PASSED 100% OF TESTS!")
-
+    test_html_and_pdf_report_render()
+    print("[SUCCESS] ALL SECURITY & WEB MODULES PASSED 100% OF TESTS!")

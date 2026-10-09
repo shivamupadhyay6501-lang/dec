@@ -1,4 +1,4 @@
-// APK Security Intelligence Frontend Application Logic
+// Security Intelligence & Executive Auditor Frontend Application Logic
 let currentReport = null;
 let activeSocket = null;
 let currentFilter = 'ALL';
@@ -24,9 +24,19 @@ function initNavigation() {
         switchTab('scanner');
     });
 
+    document.getElementById('export-pdf-btn')?.addEventListener('click', () => {
+        if (currentReport && currentReport.scan_id) {
+            exportPDF(currentReport.scan_id);
+        } else {
+            alert('No active scan report loaded to export.');
+        }
+    });
+
     document.getElementById('export-html-btn')?.addEventListener('click', () => {
         if (currentReport && currentReport.scan_id) {
-            window.open(`/api/export/${currentReport.scan_id}/html`, '_blank');
+            exportHTML(currentReport.scan_id);
+        } else {
+            alert('No active scan report loaded to export.');
         }
     });
 }
@@ -48,38 +58,76 @@ function switchTab(tabId) {
 
 // --- Scanner Input & Execution ---
 function initScanForm() {
+    const toggleWeb = document.getElementById('toggle-web');
     const toggleUrl = document.getElementById('toggle-url');
     const toggleFile = document.getElementById('toggle-file');
+    
+    const webForm = document.getElementById('web-scan-form');
     const urlForm = document.getElementById('url-scan-form');
     const fileForm = document.getElementById('file-scan-form');
+    
     const dropZone = document.getElementById('apk-drop-zone');
     const fileInput = document.getElementById('apk-file-input');
 
-    toggleUrl.addEventListener('click', () => {
+    // Toggle Handlers
+    toggleWeb?.addEventListener('click', () => {
+        toggleWeb.classList.add('active');
+        toggleUrl?.classList.remove('active');
+        toggleFile?.classList.remove('active');
+        webForm?.classList.remove('hidden');
+        urlForm?.classList.add('hidden');
+        fileForm?.classList.add('hidden');
+    });
+
+    toggleUrl?.addEventListener('click', () => {
         toggleUrl.classList.add('active');
-        toggleFile.classList.remove('active');
-        urlForm.classList.remove('hidden');
-        fileForm.classList.add('hidden');
+        toggleWeb?.classList.remove('active');
+        toggleFile?.classList.remove('active');
+        urlForm?.classList.remove('hidden');
+        webForm?.classList.add('hidden');
+        fileForm?.classList.add('hidden');
     });
 
-    toggleFile.addEventListener('click', () => {
+    toggleFile?.addEventListener('click', () => {
         toggleFile.classList.add('active');
-        toggleUrl.classList.remove('active');
-        fileForm.classList.remove('hidden');
-        urlForm.classList.add('hidden');
+        toggleWeb?.classList.remove('active');
+        toggleUrl?.classList.remove('active');
+        fileForm?.classList.remove('hidden');
+        webForm?.classList.add('hidden');
+        urlForm?.classList.add('hidden');
     });
 
-    // Quick example links
-    document.querySelectorAll('.sample-link').forEach(link => {
+    // Quick sample links for Web
+    document.querySelectorAll('.sample-web-link').forEach(link => {
         link.addEventListener('click', (e) => {
             e.preventDefault();
-            document.getElementById('playstore-url-input').value = link.getAttribute('data-pkg');
+            const urlInput = document.getElementById('web-url-input');
+            if (urlInput) urlInput.value = link.getAttribute('data-url');
         });
     });
 
-    // URL Scan Trigger
-    document.getElementById('start-url-scan-btn').addEventListener('click', () => {
-        const inputVal = document.getElementById('playstore-url-input').value.trim();
+    // Quick sample links for Mobile
+    document.querySelectorAll('.sample-link').forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            const pkgInput = document.getElementById('playstore-url-input');
+            if (pkgInput) pkgInput.value = link.getAttribute('data-pkg');
+        });
+    });
+
+    // Web Scan Trigger
+    document.getElementById('start-web-scan-btn')?.addEventListener('click', () => {
+        const inputVal = document.getElementById('web-url-input')?.value.trim();
+        if (!inputVal) {
+            alert('Please enter a website URL (e.g. https://example.com).');
+            return;
+        }
+        startWebScan(inputVal);
+    });
+
+    // Mobile URL Scan Trigger
+    document.getElementById('start-url-scan-btn')?.addEventListener('click', () => {
+        const inputVal = document.getElementById('playstore-url-input')?.value.trim();
         if (!inputVal) {
             alert('Please enter a Google Play URL or Android package name.');
             return;
@@ -88,22 +136,24 @@ function initScanForm() {
     });
 
     // File Drop Zone
-    dropZone.addEventListener('click', () => fileInput.click());
-    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.style.borderColor = 'var(--primary)'; });
-    dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = 'var(--border-light)'; });
-    dropZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        dropZone.style.borderColor = 'var(--border-light)';
-        if (e.dataTransfer.files.length > 0) {
-            uploadAndScanFile(e.dataTransfer.files[0]);
-        }
-    });
+    if (dropZone && fileInput) {
+        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.style.borderColor = 'var(--primary)'; });
+        dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = 'var(--border-light)'; });
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.style.borderColor = 'var(--border-light)';
+            if (e.dataTransfer.files.length > 0) {
+                uploadAndScanFile(e.dataTransfer.files[0]);
+            }
+        });
 
-    fileInput.addEventListener('change', () => {
-        if (fileInput.files.length > 0) {
-            uploadAndScanFile(fileInput.files[0]);
-        }
-    });
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length > 0) {
+                uploadAndScanFile(fileInput.files[0]);
+            }
+        });
+    }
 
     // Findings Filter Buttons
     document.querySelectorAll('.filter-btn').forEach(btn => {
@@ -117,11 +167,35 @@ function initScanForm() {
 }
 
 // --- Live Scan via WebSockets ---
+async function startWebScan(targetUrl) {
+    const apiKey = localStorage.getItem('gemini_api_key') || '';
+    showLiveTerminal();
+
+    try {
+        appendLogLine(`[INIT] Dispatching Website Security Audit for: ${targetUrl}...`, 'info');
+        const resp = await fetch('/api/scan/web', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: targetUrl, gemini_api_key: apiKey })
+        });
+
+        const data = await resp.json();
+        if (data.scan_id) {
+            connectScanWebSocket(data.scan_id);
+        } else {
+            throw new Error(data.detail || 'Failed to initialize scan');
+        }
+    } catch (err) {
+        appendLogLine(`[ERROR] Failed to start web scan: ${err.message}`, 'error');
+    }
+}
+
 async function startUrlScan(target) {
     const apiKey = localStorage.getItem('gemini_api_key') || '';
     showLiveTerminal();
 
     try {
+        appendLogLine(`[INIT] Dispatching Mobile Security Audit for: ${target}...`, 'info');
         const resp = await fetch('/api/scan/url', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -131,6 +205,8 @@ async function startUrlScan(target) {
         const data = await resp.json();
         if (data.scan_id) {
             connectScanWebSocket(data.scan_id);
+        } else {
+            throw new Error(data.detail || 'Failed to initialize scan');
         }
     } catch (err) {
         appendLogLine(`[ERROR] Failed to start scan: ${err.message}`, 'error');
@@ -155,6 +231,8 @@ async function uploadAndScanFile(file) {
         const data = await resp.json();
         if (data.scan_id) {
             connectScanWebSocket(data.scan_id);
+        } else {
+            throw new Error(data.detail || 'Upload failed');
         }
     } catch (err) {
         appendLogLine(`[ERROR] File upload failed: ${err.message}`, 'error');
@@ -163,26 +241,35 @@ async function uploadAndScanFile(file) {
 
 function showLiveTerminal() {
     const liveCard = document.getElementById('live-scan-card');
-    liveCard.classList.remove('hidden');
-    document.getElementById('terminal-logs').innerHTML = '';
-    document.getElementById('live-progress-fill').style.width = '5%';
-    document.getElementById('live-scan-percent').innerText = '5%';
-    document.getElementById('live-scan-status').innerText = 'Initializing Pipeline...';
+    liveCard?.classList.remove('hidden');
+    const logs = document.getElementById('terminal-logs');
+    if (logs) logs.innerHTML = '';
+    const fill = document.getElementById('live-progress-fill');
+    if (fill) fill.style.width = '5%';
+    const pct = document.getElementById('live-scan-percent');
+    if (pct) pct.innerText = '5%';
+    const status = document.getElementById('live-scan-status');
+    if (status) status.innerText = 'Initializing Pipeline...';
 }
 
 function connectScanWebSocket(scanId) {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/scan/${scanId}`;
     
-    if (activeSocket) activeSocket.close();
+    if (activeSocket) {
+        try { activeSocket.close(); } catch(e) {}
+    }
     activeSocket = new WebSocket(wsUrl);
 
     activeSocket.onmessage = (event) => {
         const msg = JSON.parse(event.data);
         if (msg.type === 'progress') {
-            document.getElementById('live-progress-fill').style.width = `${msg.percent}%`;
-            document.getElementById('live-scan-percent').innerText = `${msg.percent}%`;
-            document.getElementById('live-scan-status').innerText = msg.message;
+            const fill = document.getElementById('live-progress-fill');
+            if (fill) fill.style.width = `${msg.percent}%`;
+            const pct = document.getElementById('live-scan-percent');
+            if (pct) pct.innerText = `${msg.percent}%`;
+            const status = document.getElementById('live-scan-status');
+            if (status) status.innerText = msg.message;
             appendLogLine(`[${msg.percent}%] ${msg.message}`, 'info');
         } else if (msg.type === 'complete') {
             appendLogLine(`[COMPLETE] Security audit finished! Opening executive dashboard...`, 'success');
@@ -190,7 +277,7 @@ function connectScanWebSocket(scanId) {
             setTimeout(() => {
                 renderExecutiveReport(msg.report);
                 switchTab('dashboard');
-            }, 800);
+            }, 600);
         } else if (msg.type === 'error') {
             appendLogLine(`[FATAL ERROR] ${msg.error}`, 'error');
         }
@@ -203,6 +290,7 @@ function connectScanWebSocket(scanId) {
 
 function appendLogLine(text, type = 'info') {
     const logs = document.getElementById('terminal-logs');
+    if (!logs) return;
     const line = document.createElement('div');
     line.className = `log-line ${type}`;
     line.innerText = text;
@@ -217,65 +305,99 @@ function renderExecutiveReport(report) {
     const tech = report.tech_info || {};
     const scoreData = report.score_data || {};
     const counts = scoreData.counts || {};
+    const isWeb = app.is_web || (report.scan_id && report.scan_id.includes('WEB'));
 
     // Header metadata
-    document.getElementById('report-app-title').innerText = app.title || app.package || 'Application Audit';
-    document.getElementById('report-package').innerText = app.package || 'N/A';
-    document.getElementById('report-version').innerText = `v${app.version_name || '1.0'}`;
-    document.getElementById('report-framework').innerText = tech.primary_framework || 'Native Android';
-    document.getElementById('report-sdk').innerText = `Target SDK ${app.target_sdk || 'N/A'}`;
+    const titleElem = document.getElementById('report-app-title');
+    if (titleElem) titleElem.innerText = app.title || app.domain || app.package || 'Security Audit';
 
-    if (app.icon_url) {
-        document.getElementById('report-app-icon').innerHTML = `<img src="${app.icon_url}" style="width:100%;height:100%;border-radius:14px;object-fit:cover;">`;
+    const typeBadge = document.getElementById('report-type-badge');
+    if (typeBadge) typeBadge.innerText = isWeb ? '🌐 Web Target' : '📱 Mobile APK';
+
+    const pkgElem = document.getElementById('report-package');
+    if (pkgElem) pkgElem.innerText = app.domain || app.package || 'N/A';
+
+    const verElem = document.getElementById('report-version');
+    if (verElem) verElem.innerText = isWeb ? (app.version_name || 'HTTP 200') : `v${app.version_name || '1.0'}`;
+
+    const fwElem = document.getElementById('report-framework');
+    if (fwElem) fwElem.innerText = tech.primary_framework || (isWeb ? 'Web Application' : 'Native Android');
+
+    const sdkElem = document.getElementById('report-sdk');
+    if (sdkElem) sdkElem.innerText = isWeb ? (tech.server || app.target_sdk || 'HTTPS/TLS') : `Target SDK ${app.target_sdk || 'N/A'}`;
+
+    const iconElem = document.getElementById('report-app-icon');
+    if (iconElem) {
+        if (app.icon_url) {
+            iconElem.innerHTML = `<img src="${app.icon_url}" style="width:100%;height:100%;border-radius:14px;object-fit:cover;" onerror="this.parentElement.innerHTML='${isWeb ? '🌐' : '📱'}'">`;
+        } else {
+            iconElem.innerHTML = isWeb ? '🌐' : '📱';
+        }
     }
 
     // Score Dial & Counters
     const score = scoreData.score || 0;
-    document.getElementById('report-score-num').innerText = score;
-    document.getElementById('report-risk-level').innerText = scoreData.rating || 'AUDITED';
+    const scoreNum = document.getElementById('report-score-num');
+    if (scoreNum) scoreNum.innerText = score;
+
+    const riskLevel = document.getElementById('report-risk-level');
+    if (riskLevel) riskLevel.innerText = scoreData.rating || scoreData.risk_level || 'AUDITED';
 
     // SVG circle offset calculation (circumference = 2 * PI * 50 = 314.15)
     const meter = document.getElementById('score-meter');
-    const offset = 314 - (score / 100) * 314;
-    meter.style.strokeDashoffset = offset;
+    if (meter) {
+        const offset = 314 - (score / 100) * 314;
+        meter.style.strokeDashoffset = offset;
+        const scoreColor = score < 50 ? 'var(--sev-critical)' : score < 75 ? 'var(--sev-high)' : 'var(--sev-low)';
+        meter.style.stroke = scoreColor;
+    }
 
-    const scoreColor = score < 50 ? 'var(--sev-critical)' : score < 75 ? 'var(--sev-high)' : 'var(--sev-low)';
-    meter.style.stroke = scoreColor;
+    const cCrit = document.getElementById('count-critical');
+    if (cCrit) cCrit.innerText = counts.CRITICAL || 0;
 
-    document.getElementById('count-critical').innerText = counts.CRITICAL || 0;
-    document.getElementById('count-high').innerText = counts.HIGH || 0;
-    document.getElementById('count-medium').innerText = counts.MEDIUM || 0;
-    document.getElementById('count-low').innerText = (counts.LOW || 0) + (counts.INFO || 0);
+    const cHigh = document.getElementById('count-high');
+    if (cHigh) cHigh.innerText = counts.HIGH || 0;
+
+    const cMed = document.getElementById('count-medium');
+    if (cMed) cMed.innerText = counts.MEDIUM || 0;
+
+    const cLow = document.getElementById('count-low');
+    if (cLow) cLow.innerText = (counts.LOW || 0) + (counts.INFO || 0);
 
     // AI Briefing
-    document.getElementById('report-executive-summary').innerText = report.executive_summary || 'No summary available.';
-    document.getElementById('report-ai-badge').innerText = report.ai_engine || 'Gemini 2.5 Flash';
+    const summaryElem = document.getElementById('report-executive-summary');
+    if (summaryElem) summaryElem.innerText = report.executive_summary || 'No summary available.';
+
+    const aiBadge = document.getElementById('report-ai-badge');
+    if (aiBadge) aiBadge.innerText = report.ai_engine || 'Gemini 2.5 Flash';
 
     // Top Priorities ("Fix These First")
     const prioritiesContainer = document.getElementById('priorities-container');
-    prioritiesContainer.innerHTML = '';
-    const priorities = report.fix_these_first || [];
+    if (prioritiesContainer) {
+        prioritiesContainer.innerHTML = '';
+        const priorities = report.fix_these_first || [];
 
-    if (priorities.length === 0) {
-        prioritiesContainer.innerHTML = '<div style="color: var(--text-muted);">🎉 No urgent critical security blockades found.</div>';
-    } else {
-        priorities.forEach((p, idx) => {
-            const item = document.createElement('div');
-            item.className = 'priority-item';
-            item.innerHTML = `
-                <div class="priority-title">
-                    <span>#${idx + 1} — ${p.title}</span>
-                    <span class="badge-pill ${(p.severity || 'critical').toLowerCase()}">${p.severity}</span>
-                </div>
-                <div style="font-size: 13px; color: var(--text-muted);">
-                    <strong>Potential Impact:</strong> ${p.potential_impact || 'High exposure.'}
-                </div>
-                <div style="font-size: 13px; color: #34d399;">
-                    <strong>Action Required:</strong> ${p.action_required || 'Remediate in code.'}
-                </div>
-            `;
-            prioritiesContainer.appendChild(item);
-        });
+        if (priorities.length === 0) {
+            prioritiesContainer.innerHTML = '<div style="color: var(--text-muted);">🎉 No urgent critical security blockades found.</div>';
+        } else {
+            priorities.forEach((p, idx) => {
+                const item = document.createElement('div');
+                item.className = 'priority-item';
+                item.innerHTML = `
+                    <div class="priority-title">
+                        <span>#${p.priority || idx + 1} — ${escapeHtml(p.title || 'Security Issue')}</span>
+                        <span class="badge-pill ${(p.severity || 'critical').toLowerCase()}">${p.severity || 'CRITICAL'}</span>
+                    </div>
+                    <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+                        <strong>Potential Impact:</strong> ${escapeHtml(p.potential_impact || 'High exposure.')}
+                    </div>
+                    <div style="font-size: 13px; color: #34d399; margin-top: 4px;">
+                        <strong>Action Required:</strong> ${escapeHtml(p.action_required || 'Remediate in code.')}
+                    </div>
+                `;
+                prioritiesContainer.appendChild(item);
+            });
+        }
     }
 
     // Render findings list
@@ -284,6 +406,7 @@ function renderExecutiveReport(report) {
 
 function renderFindingsList() {
     const container = document.getElementById('findings-container');
+    if (!container) return;
     container.innerHTML = '';
 
     if (!currentReport || !currentReport.findings) return;
@@ -293,7 +416,8 @@ function renderFindingsList() {
         findings = findings.filter(f => (f.severity || '').toUpperCase() === currentFilter);
     }
 
-    document.getElementById('findings-total-count').innerText = currentReport.findings.length;
+    const totalCountElem = document.getElementById('findings-total-count');
+    if (totalCountElem) totalCountElem.innerText = currentReport.findings.length;
 
     if (findings.length === 0) {
         container.innerHTML = '<div style="color: var(--text-muted); text-align: center; padding: 20px;">No findings matching current filter.</div>';
@@ -306,21 +430,21 @@ function renderFindingsList() {
 
         const ev = f.evidence || {};
         const codeSnippet = ev.context_snippet ? `<pre class="code-viewer"><code>${escapeHtml(ev.context_snippet)}</code></pre>` : '';
-        const loc = ev.file ? `${ev.file}${ev.line ? ':' + ev.line : ''}` : 'App Configuration';
+        const loc = ev.file ? `${ev.file}${ev.line ? ':' + ev.line : ''}` : 'Target Configuration';
 
         card.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center;">
-                <h3 style="font-size: 16px; font-weight: 700;">${f.title}</h3>
-                <span class="badge-pill ${(f.severity || 'info').toLowerCase()}">${f.severity}</span>
+                <h3 style="font-size: 16px; font-weight: 700;">${escapeHtml(f.title || 'Security Finding')}</h3>
+                <span class="badge-pill ${(f.severity || 'info').toLowerCase()}">${f.severity || 'INFO'}</span>
             </div>
-            <div class="finding-meta">
-                <span>📁 Category: <strong>${f.category || 'General'}</strong></span> &bull; 
-                <span>📍 Location: <code>${loc}</code></span>
+            <div class="finding-meta" style="margin: 6px 0;">
+                <span>📁 Category: <strong>${escapeHtml(f.category || 'General')}</strong></span> &bull; 
+                <span>📍 Location: <code>${escapeHtml(loc)}</code></span>
             </div>
-            <p style="color: #cbd5e1; font-size: 14px; margin-bottom: 8px;">${f.impact}</p>
+            <p style="color: #cbd5e1; font-size: 14px; margin-bottom: 8px;">${escapeHtml(f.impact || '')}</p>
             ${codeSnippet}
             <div class="remediation-box">
-                <strong>💡 Remediation:</strong> ${f.remediation}
+                <strong>💡 Remediation:</strong> ${escapeHtml(f.remediation || 'Follow secure coding practices.')}
             </div>
         `;
         container.appendChild(card);
@@ -333,25 +457,29 @@ async function loadAuditHistory() {
         const resp = await fetch('/api/scans');
         const scans = await resp.json();
         const tbody = document.getElementById('history-tbody');
+        if (!tbody) return;
         tbody.innerHTML = '';
 
-        if (scans.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">No past scans recorded yet.</td></tr>';
+        if (!scans || scans.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted);">No past scans recorded yet.</td></tr>';
             return;
         }
 
         scans.forEach(s => {
+            const isWeb = (s.framework && s.framework.toLowerCase().includes('web')) || (s.id && s.id.includes('WEB'));
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td><code>${s.id}</code></td>
-                <td><strong>${s.app_title || s.package_name}</strong></td>
-                <td><span class="tag">v${s.version_name || '1.0'}</span></td>
+                <td><code>${escapeHtml(s.id)}</code></td>
+                <td><strong>${escapeHtml(s.app_title || s.package_name)}</strong></td>
+                <td><span class="badge-pill ${isWeb ? 'low' : 'info'}">${isWeb ? '🌐 Web' : '📱 APK'}</span></td>
+                <td><span class="tag">${escapeHtml(s.version_name || '1.0')}</span></td>
                 <td><strong style="color: ${s.security_score < 50 ? 'var(--sev-critical)' : 'var(--sev-low)'}">${s.security_score}/100</strong></td>
                 <td><span class="badge-pill critical">${s.critical_count}</span></td>
                 <td><span class="badge-pill high">${s.high_count}</span></td>
                 <td style="color: var(--text-muted); font-size: 12px;">${new Date(s.created_at).toLocaleDateString()}</td>
-                <td>
+                <td style="display: flex; gap: 6px; flex-wrap: wrap;">
                     <button class="btn btn-secondary btn-sm" onclick="loadScanDetails('${s.id}')">View</button>
+                    <button class="btn btn-secondary btn-sm" onclick="exportPDF('${s.id}')">PDF</button>
                     ${scans.length > 1 ? `<button class="btn btn-secondary btn-sm" onclick="compareWithLatest('${s.id}')">Diff</button>` : ''}
                 </td>
             `;
@@ -365,12 +493,22 @@ async function loadAuditHistory() {
 async function loadScanDetails(scanId) {
     try {
         const resp = await fetch(`/api/scans/${scanId}`);
+        if (!resp.ok) throw new Error(`HTTP Error ${resp.status}`);
         const report = await resp.json();
+        currentReport = report;
         renderExecutiveReport(report);
         switchTab('dashboard');
     } catch (err) {
         alert('Failed to load scan: ' + err.message);
     }
+}
+
+function exportPDF(scanId) {
+    window.open(`/api/export/${scanId}/pdf?print=true`, '_blank');
+}
+
+function exportHTML(scanId) {
+    window.open(`/api/export/${scanId}/html`, '_blank');
 }
 
 async function compareWithLatest(scanId) {
@@ -393,68 +531,86 @@ async function compareWithLatest(scanId) {
 
 function renderDiffModal(diff) {
     const diffContainer = document.getElementById('diff-container');
+    if (!diffContainer) return;
     diffContainer.classList.remove('hidden');
 
     const scoreChange = diff.score_diff >= 0 ? `+${diff.score_diff}` : `${diff.score_diff}`;
     const scoreColor = diff.score_diff >= 0 ? '#10b981' : '#ef4444';
 
-    document.getElementById('diff-body').innerHTML = `
-        <div style="display: flex; justify-content: space-around; background: #090d16; padding: 18px; border-radius: 8px; margin-bottom: 20px;">
-            <div style="text-align: center;">
-                <div style="font-size: 12px; color: var(--text-muted);">Base Version (${diff.base_version.version_name})</div>
-                <div style="font-size: 22px; font-weight: 800;">${diff.base_version.score}/100</div>
-            </div>
-            <div style="text-align: center;">
-                <div style="font-size: 12px; color: var(--text-muted);">Score Progression</div>
-                <div style="font-size: 22px; font-weight: 800; color: ${scoreColor};">${scoreChange} pts</div>
-            </div>
-            <div style="text-align: center;">
-                <div style="font-size: 12px; color: var(--text-muted);">New Version (${diff.new_version.version_name})</div>
-                <div style="font-size: 22px; font-weight: 800;">${diff.new_version.score}/100</div>
-            </div>
-        </div>
-
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-            <div style="background: rgba(16, 185, 129, 0.06); border: 1px solid rgba(16, 185, 129, 0.2); padding: 16px; border-radius: 8px;">
-                <h4 style="color: #34d399; margin-bottom: 8px;">🎉 Resolved Vulnerabilities (${diff.resolved_count})</h4>
-                ${diff.resolved_findings.map(f => `<div style="font-size: 13px; margin-bottom: 4px;">✅ ${f.title}</div>`).join('') || '<div style="font-size: 12px; color: var(--text-muted);">None</div>'}
+    const diffBody = document.getElementById('diff-body');
+    if (diffBody) {
+        diffBody.innerHTML = `
+            <div style="display: flex; justify-content: space-around; background: #090d16; padding: 18px; border-radius: 8px; margin-bottom: 20px;">
+                <div style="text-align: center;">
+                    <div style="font-size: 12px; color: var(--text-muted);">Base Version (${escapeHtml(diff.base_version.version_name)})</div>
+                    <div style="font-size: 22px; font-weight: 800;">${diff.base_version.score}/100</div>
+                </div>
+                <div style="text-align: center;">
+                    <div style="font-size: 12px; color: var(--text-muted);">Score Progression</div>
+                    <div style="font-size: 22px; font-weight: 800; color: ${scoreColor};">${scoreChange} pts</div>
+                </div>
+                <div style="text-align: center;">
+                    <div style="font-size: 12px; color: var(--text-muted);">New Version (${escapeHtml(diff.new_version.version_name)})</div>
+                    <div style="font-size: 22px; font-weight: 800;">${diff.new_version.score}/100</div>
+                </div>
             </div>
 
-            <div style="background: rgba(239, 68, 68, 0.06); border: 1px solid rgba(239, 68, 68, 0.2); padding: 16px; border-radius: 8px;">
-                <h4 style="color: #f87171; margin-bottom: 8px;">⚠️ New Vulnerabilities Introduced (${diff.introduced_count})</h4>
-                ${diff.introduced_findings.map(f => `<div style="font-size: 13px; margin-bottom: 4px;">❌ ${f.title}</div>`).join('') || '<div style="font-size: 12px; color: var(--text-muted);">None</div>'}
-            </div>
-        </div>
-    `;
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div style="background: rgba(16, 185, 129, 0.06); border: 1px solid rgba(16, 185, 129, 0.2); padding: 16px; border-radius: 8px;">
+                    <h4 style="color: #34d399; margin-bottom: 8px;">🎉 Resolved Vulnerabilities (${diff.resolved_count})</h4>
+                    ${diff.resolved_findings.map(f => `<div style="font-size: 13px; margin-bottom: 4px;">✅ ${escapeHtml(f.title)}</div>`).join('') || '<div style="font-size: 12px; color: var(--text-muted);">None</div>'}
+                </div>
 
-    document.getElementById('close-diff-btn').onclick = () => {
-        diffContainer.classList.add('hidden');
-    };
+                <div style="background: rgba(239, 68, 68, 0.06); border: 1px solid rgba(239, 68, 68, 0.2); padding: 16px; border-radius: 8px;">
+                    <h4 style="color: #f87171; margin-bottom: 8px;">⚠️ New Vulnerabilities Introduced (${diff.introduced_count})</h4>
+                    ${diff.introduced_findings.map(f => `<div style="font-size: 13px; margin-bottom: 4px;">❌ ${escapeHtml(f.title)}</div>`).join('') || '<div style="font-size: 12px; color: var(--text-muted);">None</div>'}
+                </div>
+            </div>
+        `;
+    }
+
+    const closeBtn = document.getElementById('close-diff-btn');
+    if (closeBtn) {
+        closeBtn.onclick = () => {
+            diffContainer.classList.add('hidden');
+        };
+    }
 }
 
 // --- Settings & Gemini Key ---
 function initSettings() {
     const keyInput = document.getElementById('gemini-key-input');
     const savedKey = localStorage.getItem('gemini_api_key');
-    if (savedKey) {
+    if (savedKey && keyInput) {
         keyInput.value = savedKey;
-        document.getElementById('ai-status-text').innerText = 'Gemini AI Active';
+        const statusText = document.getElementById('ai-status-text');
+        if (statusText) statusText.innerText = 'Gemini AI Active';
     }
 
-    document.getElementById('save-settings-btn').addEventListener('click', () => {
-        const key = keyInput.value.trim();
+    document.getElementById('save-settings-btn')?.addEventListener('click', () => {
+        const key = keyInput?.value.trim();
+        const statusText = document.getElementById('ai-status-text');
         if (key) {
             localStorage.setItem('gemini_api_key', key);
-            document.getElementById('ai-status-text').innerText = 'Gemini AI Active';
+            if (statusText) statusText.innerText = 'Gemini AI Active';
             alert('Gemini API Key saved successfully!');
         } else {
             localStorage.removeItem('gemini_api_key');
-            document.getElementById('ai-status-text').innerText = 'Local Synthesis Active';
+            if (statusText) statusText.innerText = 'Local Synthesis Active';
             alert('API Key cleared. Scanner will use local heuristic synthesis.');
         }
     });
 }
 
 function escapeHtml(str) {
-    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    if (!str) return '';
+    return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
 }
+
+// Attach globally for inline HTML handlers
+window.loadScanDetails = loadScanDetails;
+window.compareWithLatest = compareWithLatest;
+window.switchTab = switchTab;
+window.exportPDF = exportPDF;
+window.exportHTML = exportHTML;
+window.loadAuditHistory = loadAuditHistory;

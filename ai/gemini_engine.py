@@ -130,7 +130,7 @@ Return ONLY valid JSON matching this schema:
 }
 """
 
-        candidate_models = ["gemini-flash-latest", "gemini-2.5-flash-lite", "gemini-3-flash-preview", "gemini-pro-latest"]
+        candidate_models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash", "gemini-flash-latest", "gemini-pro-latest"]
         last_err = None
         for model_name in candidate_models:
             try:

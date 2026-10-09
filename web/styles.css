@@ -705,3 +705,50 @@ body {
 }
 
 .hidden { display: none !important; }
+
+/* Print Media Styles for Dashboard and Reports */
+@media print {
+    body {
+        background: #ffffff !important;
+        color: #0f172a !important;
+    }
+    .sidebar, .nav-menu, .header-actions, .input-toggle, .scanner-box, .filter-group {
+        display: none !important;
+    }
+    .main-content {
+        padding: 0 !important;
+        max-width: 100% !important;
+    }
+    .card, .stat-card, .finding-card-item {
+        background: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
+        color: #0f172a !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        box-shadow: none !important;
+    }
+    .code-viewer, .code-box {
+        background: #f8fafc !important;
+        color: #0369a1 !important;
+        border: 1px solid #cbd5e1 !important;
+    }
+    .remediation-box {
+        background: #ecfdf5 !important;
+        color: #065f46 !important;
+        border: 1px solid #a7f3d0 !important;
+    }
+    .tag {
+        background: #f1f5f9 !important;
+        color: #334155 !important;
+        border: 1px solid #cbd5e1 !important;
+    }
+    * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+    @page {
+        size: A4;
+        margin: 15mm;
+    }
+}
+
