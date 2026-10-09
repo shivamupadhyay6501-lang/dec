@@ -54,10 +54,17 @@
                 </div>
 
                 <div class="scanner-box">
-                    <div class="input-toggle">
-                        <button class="toggle-btn active" id="toggle-web">🌐 Website URL</button>
-                        <button class="toggle-btn" id="toggle-url">📱 Play Store / App</button>
-                        <button class="toggle-btn" id="toggle-file">📦 Upload APK File</button>
+                    <div class="scanner-controls-header">
+                        <div class="input-toggle">
+                            <button class="toggle-btn active" id="toggle-web">🌐 Website URL</button>
+                            <button class="toggle-btn" id="toggle-url">📱 Play Store / App</button>
+                            <button class="toggle-btn" id="toggle-file">📦 Upload APK File</button>
+                        </div>
+                        <div class="engine-selector">
+                            <span class="engine-label">Compute:</span>
+                            <button type="button" class="engine-pill active" id="engine-local" title="Run locally on this machine">⚡ Local</button>
+                            <button type="button" class="engine-pill" id="engine-cloud" title="Execute remotely in GitHub Actions Cloud Runner">☁️ GitHub Cloud</button>
+                        </div>
                     </div>
 
                     <!-- Website URL Input Form -->
@@ -277,20 +284,28 @@
             <!-- TAB 4: SETTINGS & GEMINI KEY -->
             <section id="tab-settings" class="tab-pane hidden">
                 <div class="card settings-card">
-                    <h2>⚙️ Intelligence & AI Engine Settings</h2>
+                    <h2>⚙️ Intelligence & Cloud Engine Settings</h2>
                     <p style="color: var(--text-muted); margin-bottom: 20px;">
-                        Configure your Google AI Studio Gemini API Key for generative executive synthesis ($0 free tier).
+                        Configure your AI synthesis keys and GitHub Actions Cloud dispatch token.
                     </p>
                     
-                    <div class="form-group">
-                        <label for="gemini-key-input">Gemini API Key (Optional / Free):</label>
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label for="gemini-key-input">Gemini API Key (Optional / Free Tier):</label>
                         <input type="password" id="gemini-key-input" placeholder="AIzaSy..." class="form-control">
                         <small style="color: var(--text-muted); display: block; margin-top: 6px;">
-                            Get a free key at <a href="https://aistudio.google.com/" target="_blank" style="color: var(--primary);">aistudio.google.com</a>. If left blank, the scanner will use the built-in heuristic synthesizer.
+                            Get a free key at <a href="https://aistudio.google.com/" target="_blank" style="color: var(--primary);">aistudio.google.com</a>.
                         </small>
                     </div>
 
-                    <button id="save-settings-btn" class="btn btn-primary" style="margin-top: 16px;">
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label for="github-token-input">GitHub Personal Access Token (for ☁️ GitHub Actions Cloud Run):</label>
+                        <input type="password" id="github-token-input" placeholder="ghp_... or github_pat_..." class="form-control">
+                        <small style="color: var(--text-muted); display: block; margin-top: 6px;">
+                            Required only if you want the frontend to automatically trigger and run audits on <strong>GitHub Actions</strong> instead of your local machine. Create a token with <code>workflow</code> / <code>repo</code> scope at <a href="https://github.com/settings/tokens" target="_blank" style="color: var(--primary);">github.com/settings/tokens</a>.
+                        </small>
+                    </div>
+
+                    <button id="save-settings-btn" class="btn btn-primary" style="margin-top: 8px;">
                         💾 Save Settings
                     </button>
                 </div>

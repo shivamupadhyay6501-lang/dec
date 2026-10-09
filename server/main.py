@@ -46,6 +46,11 @@ def serve_index():
         return FileResponse(index_file)
     return HTMLResponse("<h1>Web directory not found</h1>")
 
+@app.get("/favicon.ico")
+def serve_favicon():
+    from fastapi.responses import Response
+    return Response(status_code=204)
+
 
 orchestrator = AuditOrchestrator()
 db = AuditDatabase()
@@ -80,13 +85,17 @@ manager = ConnectionManager()
 class ScanUrlRequest(BaseModel):
     url_or_package: str
     gemini_api_key: Optional[str] = None
+    engine: Optional[str] = "local" # "local" or "github_cloud"
+    github_token: Optional[str] = None
 
 class ScanWebRequest(BaseModel):
     url: str
     gemini_api_key: Optional[str] = None
+    engine: Optional[str] = "local"
+    github_token: Optional[str] = None
 
 # Background scan runner
-def run_background_scan(scan_id: str, target: str, is_url: bool, is_web: bool = False, api_key: Optional[str] = None):
+def run_background_scan(scan_id: str, target: str, is_url: bool, is_web: bool = False, engine: str = "local", github_token: Optional[str] = None, api_key: Optional[str] = None):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
@@ -101,7 +110,13 @@ def run_background_scan(scan_id: str, target: str, is_url: bool, is_web: bool = 
         if api_key:
             orchestrator.ai_auditor.__init__(api_key=api_key)
 
-        if is_web:
+        if engine == "github_cloud":
+            from core.github_runner import GitHubActionsRunner
+            progress_callback("[CLOUD] Initializing GitHub Actions cloud dispatcher...", 5)
+            runner = GitHubActionsRunner(token=github_token)
+            report = runner.execute_cloud_audit(target, gemini_api_key=api_key, progress_callback=progress_callback)
+            db.save_scan(report)
+        elif is_web:
             report = orchestrator.run_web_audit(target, progress_callback=progress_callback)
         else:
             report = orchestrator.run_audit(target, is_url=is_url, progress_callback=progress_callback)
@@ -142,24 +157,26 @@ async def start_scan_url(req: ScanUrlRequest, background_tasks: BackgroundTasks)
     else:
         scan_id = f"SCAN-{uuid.uuid4().hex[:8].upper()}"
 
-    background_tasks.add_task(run_background_scan, scan_id, target, True, is_web, req.gemini_api_key)
+    background_tasks.add_task(run_background_scan, scan_id, target, True, is_web, req.engine or "local", req.github_token, req.gemini_api_key)
     return {
         "scan_id": scan_id,
         "status": "queued",
         "target": target,
-        "type": "website" if is_web else "apk"
+        "type": "website" if is_web else "apk",
+        "engine": req.engine or "local"
     }
 
 @app.post("/api/scan/web")
 async def start_scan_web(req: ScanWebRequest, background_tasks: BackgroundTasks):
     import uuid
     scan_id = f"SCAN-WEB-{uuid.uuid4().hex[:6].upper()}"
-    background_tasks.add_task(run_background_scan, scan_id, req.url.strip(), True, True, req.gemini_api_key)
+    background_tasks.add_task(run_background_scan, scan_id, req.url.strip(), True, True, req.engine or "local", req.github_token, req.gemini_api_key)
     return {
         "scan_id": scan_id,
         "status": "queued",
         "target": req.url.strip(),
-        "type": "website"
+        "type": "website",
+        "engine": req.engine or "local"
     }
 
 @app.post("/api/scan/upload")

@@ -57,6 +57,8 @@ function switchTab(tabId) {
 }
 
 // --- Scanner Input & Execution ---
+let selectedEngine = localStorage.getItem('scan_engine') || 'local';
+
 function initScanForm() {
     const toggleWeb = document.getElementById('toggle-web');
     const toggleUrl = document.getElementById('toggle-url');
@@ -68,6 +70,44 @@ function initScanForm() {
     
     const dropZone = document.getElementById('apk-drop-zone');
     const fileInput = document.getElementById('apk-file-input');
+
+    const engineLocal = document.getElementById('engine-local');
+    const engineCloud = document.getElementById('engine-cloud');
+
+    // Restore engine selection
+    const savedToken = localStorage.getItem('github_token');
+    if (selectedEngine === 'github_cloud' && savedToken && engineCloud && engineLocal) {
+        engineCloud.classList.add('active');
+        engineLocal.classList.remove('active');
+    } else {
+        selectedEngine = 'local';
+        engineLocal?.classList.add('active');
+        engineCloud?.classList.remove('active');
+    }
+
+    engineLocal?.addEventListener('click', () => {
+        selectedEngine = 'local';
+        localStorage.setItem('scan_engine', 'local');
+        engineLocal.classList.add('active');
+        engineCloud?.classList.remove('active');
+    });
+
+    engineCloud?.addEventListener('click', () => {
+        const token = localStorage.getItem('github_token');
+        if (!token) {
+            const goToSettings = confirm('☁️ GitHub Actions Cloud Runner executes audits on GitHub\'s free cloud servers (great for mobile/remote use).\n\nA GitHub Personal Access Token (PAT) is required.\n\nClick OK to open Settings and paste your token, or Cancel to keep using Local compute.');
+            if (goToSettings) {
+                switchTab('settings');
+                return;
+            } else {
+                return;
+            }
+        }
+        selectedEngine = 'github_cloud';
+        localStorage.setItem('scan_engine', 'github_cloud');
+        engineCloud.classList.add('active');
+        engineLocal?.classList.remove('active');
+    });
 
     // Toggle Handlers
     toggleWeb?.addEventListener('click', () => {
@@ -169,14 +209,36 @@ function initScanForm() {
 // --- Live Scan via WebSockets ---
 async function startWebScan(targetUrl) {
     const apiKey = localStorage.getItem('gemini_api_key') || '';
+    const ghToken = localStorage.getItem('github_token') || '';
+
+    if (selectedEngine === 'github_cloud' && !ghToken) {
+        const runLocal = confirm('GitHub Personal Access Token is not set for Cloud Runner.\n\nClick OK to run this scan on your Local Machine instead,\nor Cancel to open Settings and enter your GitHub PAT.');
+        if (runLocal) {
+            selectedEngine = 'local';
+            localStorage.setItem('scan_engine', 'local');
+            document.getElementById('engine-local')?.classList.add('active');
+            document.getElementById('engine-cloud')?.classList.remove('active');
+        } else {
+            switchTab('settings');
+            return;
+        }
+    }
+
     showLiveTerminal();
 
     try {
-        appendLogLine(`[INIT] Dispatching Website Security Audit for: ${targetUrl}...`, 'info');
+        const engineLabel = selectedEngine === 'github_cloud' ? '☁️ GitHub Actions Cloud Runner' : '⚡ Local Machine';
+        appendLogLine(`[INIT] Starting Web Security Audit on ${engineLabel}...`, 'info');
+        
         const resp = await fetch('/api/scan/web', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: targetUrl, gemini_api_key: apiKey })
+            body: JSON.stringify({
+                url: targetUrl,
+                gemini_api_key: apiKey,
+                engine: selectedEngine,
+                github_token: ghToken
+            })
         });
 
         const data = await resp.json();
@@ -192,14 +254,36 @@ async function startWebScan(targetUrl) {
 
 async function startUrlScan(target) {
     const apiKey = localStorage.getItem('gemini_api_key') || '';
+    const ghToken = localStorage.getItem('github_token') || '';
+
+    if (selectedEngine === 'github_cloud' && !ghToken) {
+        const runLocal = confirm('GitHub Personal Access Token is not set for Cloud Runner.\n\nClick OK to run this scan on your Local Machine instead,\nor Cancel to open Settings and enter your GitHub PAT.');
+        if (runLocal) {
+            selectedEngine = 'local';
+            localStorage.setItem('scan_engine', 'local');
+            document.getElementById('engine-local')?.classList.add('active');
+            document.getElementById('engine-cloud')?.classList.remove('active');
+        } else {
+            switchTab('settings');
+            return;
+        }
+    }
+
     showLiveTerminal();
 
     try {
-        appendLogLine(`[INIT] Dispatching Mobile Security Audit for: ${target}...`, 'info');
+        const engineLabel = selectedEngine === 'github_cloud' ? '☁️ GitHub Actions Cloud Runner' : '⚡ Local Machine';
+        appendLogLine(`[INIT] Starting Mobile Security Audit on ${engineLabel}...`, 'info');
+        
         const resp = await fetch('/api/scan/url', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url_or_package: target, gemini_api_key: apiKey })
+            body: JSON.stringify({
+                url_or_package: target,
+                gemini_api_key: apiKey,
+                engine: selectedEngine,
+                github_token: ghToken
+            })
         });
 
         const data = await resp.json();
@@ -580,6 +664,8 @@ function renderDiffModal(diff) {
 // --- Settings & Gemini Key ---
 function initSettings() {
     const keyInput = document.getElementById('gemini-key-input');
+    const ghTokenInput = document.getElementById('github-token-input');
+    
     const savedKey = localStorage.getItem('gemini_api_key');
     if (savedKey && keyInput) {
         keyInput.value = savedKey;
@@ -587,18 +673,31 @@ function initSettings() {
         if (statusText) statusText.innerText = 'Gemini AI Active';
     }
 
+    const savedGhToken = localStorage.getItem('github_token');
+    if (savedGhToken && ghTokenInput) {
+        ghTokenInput.value = savedGhToken;
+    }
+
     document.getElementById('save-settings-btn')?.addEventListener('click', () => {
         const key = keyInput?.value.trim();
+        const ghToken = ghTokenInput?.value.trim();
         const statusText = document.getElementById('ai-status-text');
+        
         if (key) {
             localStorage.setItem('gemini_api_key', key);
             if (statusText) statusText.innerText = 'Gemini AI Active';
-            alert('Gemini API Key saved successfully!');
         } else {
             localStorage.removeItem('gemini_api_key');
             if (statusText) statusText.innerText = 'Local Synthesis Active';
-            alert('API Key cleared. Scanner will use local heuristic synthesis.');
         }
+
+        if (ghToken) {
+            localStorage.setItem('github_token', ghToken);
+        } else {
+            localStorage.removeItem('github_token');
+        }
+
+        alert('Settings saved successfully!');
     });
 }
 
@@ -614,3 +713,4 @@ window.switchTab = switchTab;
 window.exportPDF = exportPDF;
 window.exportHTML = exportHTML;
 window.loadAuditHistory = loadAuditHistory;
+
