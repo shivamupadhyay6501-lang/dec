@@ -32,9 +32,9 @@ def main():
         is_url = not is_file
 
         def cli_progress(msg, pct):
-            print(f"[{pct:>3}%] {msg}")
+            print(f"[{pct:>3}%] {msg}", flush=True)
 
-        print(f"\n[INIT] Starting automated security audit for: {args.target}")
+        print(f"\n[INIT] Starting automated security audit for: {args.target}", flush=True)
         report = orchestrator.run_audit(args.target, is_url=is_url, progress_callback=cli_progress)
 
         

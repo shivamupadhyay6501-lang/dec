@@ -108,6 +108,15 @@ class APKDownloader:
             logger.debug(f"Aptoide resolver failed for {package_name}: {e}")
         return None
 
+    CLOUDFLARE_RELAY_URL = os.environ.get("CLOUDFLARE_RELAY_URL", "https://apk-relay.su468581.workers.dev")
+
+    def _relay_wrap(self, url: str) -> str:
+        """Wraps a target URL through Cloudflare Global Edge Relay."""
+        import urllib.parse
+        if not self.CLOUDFLARE_RELAY_URL:
+            return url
+        return f"{self.CLOUDFLARE_RELAY_URL.rstrip('/')}/?url={urllib.parse.quote(url, safe='')}"
+
     def get_download_stream_url(self, package_name: str) -> Tuple[Optional[str], str]:
         """
         Resolves direct download URL for the package across multiple public mirrors.
@@ -118,24 +127,10 @@ class APKDownloader:
         if aptoide_url:
             return aptoide_url, "Aptoide Direct CDN"
 
-        # Tier 2: Multi-mirror fallback list
-        mirrors = [
-            (f"https://d.apkpure.net/b/APK/{package_name}?version=latest", "APKPure Mirror"),
-            (f"https://f-droid.org/repo/{package_name}.apk", "F-Droid Mirror"),
-            (f"https://d.apkpure.net/b/XAPK/{package_name}?version=latest", "APKPure XAPK Mirror"),
-            (f"https://apkcombo.app/{package_name}/download/apk", "APKCombo Mirror")
-        ]
-
-        for mirror_url, source_name in mirrors:
-            try:
-                head_resp = requests.head(mirror_url, headers=self.HEADERS, timeout=5, allow_redirects=True)
-                if head_resp.status_code == 200 and int(head_resp.headers.get("content-length", 0)) > 50000:
-                    return head_resp.url, source_name
-            except Exception:
-                continue
-
-        # Default fallback
-        return f"https://d.apkpure.net/b/APK/{package_name}?version=latest", "APKPure (Default)"
+        # Tier 2: Cloudflare Edge Relay through APKPure
+        apkpure_url = f"https://d.apkpure.net/b/APK/{package_name}?version=latest"
+        relayed_apkpure = self._relay_wrap(apkpure_url)
+        return relayed_apkpure, "Cloudflare Edge Relay (APKPure)"
 
     def download_apk(self, package_or_url: str, output_dir: str, progress_callback=None) -> Dict[str, Any]:
         """
@@ -161,23 +156,24 @@ class APKDownloader:
         resp = None
         # Try primary resolved mirror
         try:
-            resp = requests.get(download_url, headers=self.HEADERS, stream=True, timeout=12, allow_redirects=True)
+            resp = requests.get(download_url, headers=self.HEADERS, stream=True, timeout=20, allow_redirects=True)
         except Exception as e:
-            logger.warning(f"Primary mirror {source} timed out: {e}. Cascading to backup mirrors...")
+            logger.warning(f"Primary mirror {source} failed: {e}. Cascading to fallback mirrors...")
 
-        # If primary failed, try secondary mirrors
+        # If primary failed, try secondary mirrors via Cloudflare Relay
         if not resp or resp.status_code != 200:
             fallback_sources = [
-                f"https://f-droid.org/repo/{package_name}.apk",
-                f"https://apkcombo.app/{package_name}/download/apk",
-                f"https://d.apkpure.net/b/APK/{package_name}?version=latest"
+                (self._relay_wrap(f"https://f-droid.org/repo/{package_name}.apk"), "Cloudflare (F-Droid)"),
+                (self._relay_wrap(f"https://apkcombo.app/{package_name}/download/apk"), "Cloudflare (APKCombo)"),
+                (f"https://f-droid.org/repo/{package_name}.apk", "F-Droid Direct"),
+                (f"https://d.apkpure.net/b/APK/{package_name}?version=latest", "APKPure Direct")
             ]
-            for fb_url in fallback_sources:
+            for fb_url, fb_name in fallback_sources:
                 try:
-                    r_fb = requests.get(fb_url, headers=self.HEADERS, stream=True, timeout=8, allow_redirects=True)
+                    r_fb = requests.get(fb_url, headers=self.HEADERS, stream=True, timeout=12, allow_redirects=True)
                     if r_fb.status_code == 200:
                         resp = r_fb
-                        source = f"Backup Mirror ({fb_url})"
+                        source = fb_name
                         break
                 except Exception:
                     continue
@@ -185,7 +181,6 @@ class APKDownloader:
         if not resp or resp.status_code != 200:
             raise RuntimeError(
                 f"Could not automatically download APK for '{package_name}'. "
-                f"Public mirrors may be blocked by your network/ISP. "
                 f"Please download the APK file manually and run: `python run.py scan --target path/to/{package_name}.apk` or drop it into the web dashboard."
             )
 

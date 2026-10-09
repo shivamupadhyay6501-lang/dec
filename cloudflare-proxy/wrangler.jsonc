@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "apk-relay",
+  "main": "src/index.js",
+  "compatibility_date": "2026-04-01",
+  "account_id": "09f855ac9a499b9d0b63529456987ffa",
+  "observability": {
+    "enabled": true
+  }
+}
