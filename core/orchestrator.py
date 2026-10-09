@@ -129,9 +129,11 @@ class AuditOrchestrator:
 
             # Step 7: Passive Cloud Probing
             log_progress("Probing extracted cloud endpoints for open bucket/database permissions...", 90)
-            # Combine text strings for cloud probing
             all_findings_snippets = " ".join([f.get("evidence", {}).get("context_snippet", "") for f in secret_findings])
-            cloud_findings = self.cloud_prober.probe_text_for_cloud_resources(all_findings_snippets)
+            # Also extract from manifest XML text if available
+            manifest_text = manifest_res.get("raw_xml", "")
+            cloud_search_text = f"{all_findings_snippets} {manifest_text}"
+            cloud_findings, cloud_diagnostics = self.cloud_prober.probe_text_for_cloud_resources(cloud_search_text)
 
             # Aggregate all findings
             all_findings = []
@@ -161,6 +163,7 @@ class AuditOrchestrator:
                     "unguarded_exported_count": manifest_res.get("unguarded_exported_count", 0),
                     "deep_links_count": manifest_res.get("deep_links_count", 0)
                 },
+                "cloud_diagnostics": cloud_diagnostics,
                 "findings": all_findings
             }
 

@@ -6,6 +6,7 @@ let currentFilter = 'ALL';
 document.addEventListener('DOMContentLoaded', () => {
     initNavigation();
     initScanForm();
+    initChatInterface();
     initSettings();
     loadAuditHistory();
 });
@@ -53,6 +54,8 @@ function switchTab(tabId) {
 
     if (tabId === 'history') {
         loadAuditHistory();
+    } else if (tabId === 'chat') {
+        populateChatScanSelect();
     }
 }
 
@@ -484,6 +487,38 @@ function renderExecutiveReport(report) {
         }
     }
 
+    // Cloud & Firebase Diagnostics
+    const cloudCard = document.getElementById('cloud-diag-card');
+    const cloudContainer = document.getElementById('cloud-diag-container');
+    const cloudBadge = document.getElementById('cloud-diag-badge');
+    if (cloudCard && cloudContainer) {
+        const diags = report.cloud_diagnostics || [];
+        if (diags.length > 0) {
+            cloudCard.classList.remove('hidden');
+            if (cloudBadge) cloudBadge.innerText = `${diags.length} Endpoints Tested`;
+            cloudContainer.innerHTML = '';
+            diags.forEach(d => {
+                const item = document.createElement('div');
+                item.className = 'cloud-diag-item';
+                const isVuln = d.verdict === 'VULNERABLE';
+                const isSec = d.verdict === 'SECURE';
+                const badgeClass = isVuln ? 'critical' : (isSec ? 'low' : 'info');
+                item.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                        <div>
+                            <strong>${escapeHtml(d.service)}</strong> &bull; <code>${escapeHtml(d.target_url)}</code>
+                        </div>
+                        <span class="badge-pill ${badgeClass}">${escapeHtml(d.verdict_badge || d.verdict)}</span>
+                    </div>
+                    <div style="font-size: 13px; color: var(--text-muted);">${escapeHtml(d.details || '')}</div>
+                `;
+                cloudContainer.appendChild(item);
+            });
+        } else {
+            cloudCard.classList.add('hidden');
+        }
+    }
+
     // Render findings list
     renderFindingsList();
 }
@@ -701,6 +736,209 @@ function initSettings() {
     });
 }
 
+// --- Interactive Code Chat Assistant ---
+function initChatInterface() {
+    const sendBtn = document.getElementById('chat-send-btn');
+    const inputArea = document.getElementById('chat-user-input');
+    const scanSelect = document.getElementById('chat-scan-select');
+
+    // Quick prompt chips
+    document.querySelectorAll('#chat-quick-prompts .prompt-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            const prompt = chip.getAttribute('data-prompt');
+            if (inputArea) {
+                inputArea.value = prompt;
+                sendChatMessage();
+            }
+        });
+    });
+
+    sendBtn?.addEventListener('click', () => {
+        sendChatMessage();
+    });
+
+    inputArea?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendChatMessage();
+        }
+    });
+
+    scanSelect?.addEventListener('change', () => {
+        const scanId = scanSelect.value;
+        if (scanId) {
+            updateChatPrompts(scanId);
+        }
+    });
+}
+
+async function populateChatScanSelect() {
+    const scanSelect = document.getElementById('chat-scan-select');
+    if (!scanSelect) return;
+
+    try {
+        const resp = await fetch('/api/scans');
+        const scans = await resp.json();
+        
+        const currentValue = scanSelect.value;
+        scanSelect.innerHTML = '<option value="">-- Select an audited app --</option>';
+
+        if (scans && scans.length > 0) {
+            scans.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s.id;
+                opt.innerText = `${s.app_title || s.package_name} (${s.id})`;
+                scanSelect.appendChild(opt);
+            });
+
+            // If currentReport exists, select it
+            if (currentReport && currentReport.scan_id) {
+                scanSelect.value = currentReport.scan_id;
+            } else if (currentValue && scans.some(s => s.id === currentValue)) {
+                scanSelect.value = currentValue;
+            } else if (scans.length > 0) {
+                scanSelect.value = scans[0].id;
+            }
+        }
+    } catch (err) {
+        console.error('Failed to populate chat scan select:', err);
+    }
+}
+
+async function updateChatPrompts(scanId) {
+    try {
+        const resp = await fetch(`/api/chat/prompts/${scanId}`);
+        const data = await resp.json();
+        const container = document.getElementById('chat-quick-prompts');
+        if (container && data.prompts && data.prompts.length > 0) {
+            container.innerHTML = '';
+            data.prompts.forEach(p => {
+                const chip = document.createElement('span');
+                chip.className = 'prompt-chip';
+                chip.setAttribute('data-prompt', p);
+                chip.innerText = p;
+                chip.addEventListener('click', () => {
+                    const inputArea = document.getElementById('chat-user-input');
+                    if (inputArea) {
+                        inputArea.value = p;
+                        sendChatMessage();
+                    }
+                });
+                container.appendChild(chip);
+            });
+        }
+    } catch (err) {
+        console.debug('Failed to update chat prompts:', err);
+    }
+}
+
+async function sendChatMessage() {
+    const inputArea = document.getElementById('chat-user-input');
+    const scanSelect = document.getElementById('chat-scan-select');
+    const timeline = document.getElementById('chat-messages-timeline');
+
+    const query = inputArea?.value.trim();
+    if (!query) return;
+
+    const scanId = scanSelect?.value || (currentReport ? currentReport.scan_id : null);
+    if (!scanId) {
+        alert('Please select an audited target app from the dropdown before chatting.');
+        return;
+    }
+
+    // 1. Append User Message
+    appendChatMessage('user', query);
+    inputArea.value = '';
+
+    // 2. Append Loading Placeholder
+    const loadingId = 'loading-' + Date.now();
+    const loadingElem = document.createElement('div');
+    loadingElem.className = 'chat-msg ai-msg';
+    loadingElem.id = loadingId;
+    loadingElem.innerHTML = `
+        <div class="msg-avatar">🤖</div>
+        <div class="msg-content">
+            <div class="typing-indicator">
+                <span></span><span></span><span></span>
+            </div>
+            <small style="color: var(--text-muted); display: block; margin-top: 6px;">Deep-searching decompiled classes & synthesizing answer...</small>
+        </div>
+    `;
+    timeline.appendChild(loadingElem);
+    timeline.scrollTop = timeline.scrollHeight;
+
+    const apiKey = localStorage.getItem('gemini_api_key') || '';
+
+    try {
+        const resp = await fetch('/api/chat/app', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                scan_id: scanId,
+                query: query,
+                gemini_api_key: apiKey
+            })
+        });
+
+        const data = await resp.json();
+        loadingElem.remove();
+
+        appendChatMessage('ai', data.answer, data.snippets);
+    } catch (err) {
+        loadingElem.remove();
+        appendChatMessage('ai', `⚠️ Error fetching response: ${err.message}`);
+    }
+}
+
+function appendChatMessage(sender, text, snippets = []) {
+    const timeline = document.getElementById('chat-messages-timeline');
+    if (!timeline) return;
+
+    const msg = document.createElement('div');
+    msg.className = `chat-msg ${sender}-msg`;
+
+    const avatar = sender === 'user' ? '👤' : '🤖';
+    const formattedHtml = formatChatMarkdown(text);
+
+    msg.innerHTML = `
+        <div class="msg-avatar">${avatar}</div>
+        <div class="msg-content">
+            ${formattedHtml}
+        </div>
+    `;
+
+    timeline.appendChild(msg);
+    timeline.scrollTop = timeline.scrollHeight;
+}
+
+function formatChatMarkdown(text) {
+    if (!text) return '';
+    let html = escapeHtml(text);
+
+    // Code blocks with triple backticks ```java ... ```
+    html = html.replace(/```([a-zA-Z0-9_\-]+)?\n([\s\S]*?)```/g, (match, lang, code) => {
+        return `<pre class="code-viewer"><div class="code-lang-tag">${lang || 'code'}</div><code>${code.trim()}</code></pre>`;
+    });
+
+    // Inline code `code`
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    // Bold **text**
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+    // Headers ###, ####
+    html = html.replace(/^#### (.*$)/gim, '<h4 style="margin: 10px 0 4px 0; color: #38bdf8;">$1</h4>');
+    html = html.replace(/^### (.*$)/gim, '<h3 style="margin: 12px 0 6px 0; color: #818cf8;">$1</h3>');
+
+    // Bullet points - list item
+    html = html.replace(/^\- (.*$)/gim, '<li style="margin-left: 18px; margin-bottom: 4px;">$1</li>');
+
+    // Line breaks
+    html = html.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
+
+    return html;
+}
+
 function escapeHtml(str) {
     if (!str) return '';
     return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
@@ -713,4 +951,5 @@ window.switchTab = switchTab;
 window.exportPDF = exportPDF;
 window.exportHTML = exportHTML;
 window.loadAuditHistory = loadAuditHistory;
+window.sendChatMessage = sendChatMessage;
 

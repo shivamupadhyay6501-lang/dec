@@ -28,6 +28,9 @@
                 <button class="nav-item" data-tab="dashboard" id="nav-dashboard-btn">
                     <span class="icon">📊</span> Executive Report
                 </button>
+                <button class="nav-item" data-tab="chat" id="nav-chat-btn">
+                    <span class="icon">💬</span> Chat with App
+                </button>
                 <button class="nav-item" data-tab="history">
                     <span class="icon">🕒</span> Audit History & Diffs
                 </button>
@@ -220,6 +223,17 @@
                     </div>
                 </div>
 
+                <!-- Cloud & Firebase Posture Diagnostics Section -->
+                <div class="card cloud-diag-card hidden" id="cloud-diag-card">
+                    <div class="card-header">
+                        <h2>☁️ Cloud & Firebase Posture Diagnostics</h2>
+                        <span class="badge-pill" id="cloud-diag-badge">Live Probed</span>
+                    </div>
+                    <div class="card-body" id="cloud-diag-container">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
                 <!-- Detailed Findings Matrix -->
                 <div class="card findings-card">
                     <div class="card-header findings-toolbar">
@@ -234,6 +248,49 @@
                     </div>
                     <div class="card-body" id="findings-container">
                         <!-- Populated by JS -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 2.5: INTERACTIVE CODE CHAT ASSISTANT -->
+            <section id="tab-chat" class="tab-pane hidden">
+                <div class="dashboard-header">
+                    <div>
+                        <h1>💬 Chat with Decompiled App & Codebase</h1>
+                        <p>Ask questions about API endpoints, hardcoded credentials, permissions, and cryptography logic.</p>
+                    </div>
+                    <div class="chat-target-selector-box">
+                        <label for="chat-scan-select">Target App:</label>
+                        <select id="chat-scan-select" class="form-control" style="width: auto; min-width: 220px; display: inline-block;">
+                            <option value="">-- Select an audited app --</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="chat-container card">
+                    <div class="chat-quick-prompts" id="chat-quick-prompts">
+                        <span class="prompt-chip" data-prompt="Show all API endpoints and network URLs used in this app">🌐 Show API Endpoints</span>
+                        <span class="prompt-chip" data-prompt="Where are API keys, tokens, and secrets stored in the code?">🔑 Find Hardcoded Secrets</span>
+                        <span class="prompt-chip" data-prompt="Analyze AndroidManifest.xml permissions and exported components">🛡️ Manifest Security</span>
+                        <span class="prompt-chip" data-prompt="Is user login or token stored in SharedPreferences securely?">💾 Storage & Auth</span>
+                        <span class="prompt-chip" data-prompt="Explain the cryptography and hashing algorithms used">🔐 Crypto & Hashes</span>
+                    </div>
+
+                    <div class="chat-messages-timeline" id="chat-messages-timeline">
+                        <div class="chat-msg ai-msg">
+                            <div class="msg-avatar">🤖</div>
+                            <div class="msg-content">
+                                <p><strong>Welcome to App Code Intelligence!</strong></p>
+                                <p>Select an audited app above or click any starter question to deep-search the decompiled Java/Kotlin classes and security configuration.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="chat-input-row">
+                        <textarea id="chat-user-input" placeholder="Ask anything about the decompiled code (e.g. 'Where is the Retrofit base URL defined?', 'Explain the encryption keys')..." rows="2"></textarea>
+                        <button id="chat-send-btn" class="btn btn-primary">
+                            <span>🚀 Send</span>
+                        </button>
                     </div>
                 </div>
             </section>

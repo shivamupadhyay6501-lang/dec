@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.orchestrator import AuditOrchestrator
+from core.code_chat import AppCodeChatAssistant
 from database.db import AuditDatabase
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -21,8 +22,8 @@ logger = logging.getLogger("server")
 
 app = FastAPI(
     title="Security Intelligence & Executive Auditor API",
-    version="1.1.0",
-    description="Automated static analysis, secret classification, and Gemini executive reporting for Android APKs and Web Applications."
+    version="1.2.0",
+    description="Automated static analysis, secret classification, cloud misconfiguration probing, and AI interactive chat for Android APKs and Web Applications."
 )
 
 # CORS middleware for local frontend development
@@ -54,6 +55,7 @@ def serve_favicon():
 
 orchestrator = AuditOrchestrator()
 db = AuditDatabase()
+chat_assistant = AppCodeChatAssistant()
 
 # Active WebSocket connections for live scan streaming
 class ConnectionManager:
@@ -93,6 +95,11 @@ class ScanWebRequest(BaseModel):
     gemini_api_key: Optional[str] = None
     engine: Optional[str] = "local"
     github_token: Optional[str] = None
+
+class ChatAppRequest(BaseModel):
+    scan_id: str
+    query: str
+    gemini_api_key: Optional[str] = None
 
 # Background scan runner
 def run_background_scan(scan_id: str, target: str, is_url: bool, is_web: bool = False, engine: str = "local", github_token: Optional[str] = None, api_key: Optional[str] = None):
@@ -530,6 +537,17 @@ def generate_report_html(scan: dict, auto_print: bool = False) -> str:
         </div>
         ''' for idx, p in enumerate(priorities)]) if priorities else '<div class="card" style="color: var(--text-muted);">🎉 No urgent critical security blockades found.</div>'}
 
+        <h2>☁️ Cloud & Firebase Posture Diagnostics</h2>
+        {''.join([f'''
+        <div class="card" style="border-left: 4px solid {'#ef4444' if d.get('verdict') == 'VULNERABLE' else ('#10b981' if d.get('verdict') == 'SECURE' else '#94a3b8')};">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <strong style="font-size: 14px;">{d.get('service')} — <code>{d.get('target_url')}</code></strong>
+                <span class="badge-pill {'crit' if d.get('verdict') == 'VULNERABLE' else ('low' if d.get('verdict') == 'SECURE' else 'info')}">{d.get('verdict_badge')}</span>
+            </div>
+            <p style="margin: 4px 0; font-size: 13px; color: var(--text-muted);">{d.get('details')}</p>
+        </div>
+        ''' for d in scan.get('cloud_diagnostics', [])]) if scan.get('cloud_diagnostics') else '<div class="card" style="color: var(--text-muted);">No external cloud endpoints detected for passive diagnostics.</div>'}
+
         <h2>🔍 Detailed Security Findings ({len(findings)})</h2>
         {''.join([f'''
         <div class="card">
@@ -557,6 +575,17 @@ def generate_report_html(scan: dict, auto_print: bool = False) -> str:
 </body>
 </html>
 """
+
+# --- Interactive Code Chat Endpoints ---
+@app.post("/api/chat/app")
+def chat_with_app(req: ChatAppRequest):
+    result = chat_assistant.answer_query(req.scan_id, req.query, gemini_api_key=req.gemini_api_key)
+    return JSONResponse(content=result)
+
+@app.get("/api/chat/prompts/{scan_id}")
+def get_chat_prompts(scan_id: str):
+    prompts = chat_assistant.get_suggested_prompts(scan_id)
+    return JSONResponse(content={"scan_id": scan_id, "prompts": prompts})
 
 @app.get("/api/export/{scan_id}/html", response_class=HTMLResponse)
 def export_html_report(scan_id: str):
