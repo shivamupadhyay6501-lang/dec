@@ -1,17 +1,19 @@
-name: APK Security Audit & Executive Report
+name: Security Audit & Executive Report (Web & APK)
 
 on:
   workflow_dispatch:
     inputs:
       target:
-        description: 'Play Store URL or Package ID (e.g. com.tution_plus or com.spotify.music)'
+        description: 'Target Website URL (e.g. https://example.com) OR Play Store / Package ID (e.g. com.spotify.music)'
         required: true
-        default: 'com.tution_plus'
+        default: 'https://example.com'
         type: string
       gemini_api_key:
         description: 'Optional Gemini API Key (defaults to repo secret GEMINI_API_KEY)'
         required: false
         type: string
+  repository_dispatch:
+    types: [run-audit]
 
 jobs:
   audit:
@@ -44,58 +46,81 @@ jobs:
       - name: Execute Security Audit Pipeline
         id: run_audit
         env:
-          GEMINI_API_KEY: ${{ inputs.gemini_api_key || secrets.GEMINI_API_KEY }}
-          GOOGLE_API_KEY: ${{ inputs.gemini_api_key || secrets.GEMINI_API_KEY }}
+          TARGET_INPUT: ${{ github.event.inputs.target || github.event.client_payload.target || 'https://example.com' }}
+          API_KEY_INPUT: ${{ github.event.inputs.gemini_api_key || github.event.client_payload.gemini_api_key || secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY: ${{ github.event.inputs.gemini_api_key || github.event.client_payload.gemini_api_key || secrets.GEMINI_API_KEY }}
+          GOOGLE_API_KEY: ${{ github.event.inputs.gemini_api_key || github.event.client_payload.gemini_api_key || secrets.GEMINI_API_KEY }}
         run: |
           mkdir -p output_reports
           python -c "
           import os
           import json
           from core.orchestrator import AuditOrchestrator
+          from server.main import generate_report_html
           
-          target = '${{ inputs.target }}'.strip()
-          print(f'[GITHUB ACTION] Starting cloud audit for: {target}')
+          target = os.environ.get('TARGET_INPUT', 'https://example.com').strip()
+          api_key = os.environ.get('API_KEY_INPUT') or None
+          is_web = target.startswith(('http://', 'https://')) and 'play.google.com/store/apps' not in target
+          
+          print(f'[GITHUB ACTION] Starting cloud audit for: {target} (Type: {\"Website\" if is_web else \"Android APK\"})')
           
           orchestrator = AuditOrchestrator()
-          report = orchestrator.run_audit(target, is_url=True)
+          if api_key:
+              orchestrator.ai_auditor.__init__(api_key=api_key)
+              
+          if is_web:
+              report = orchestrator.run_web_audit(target)
+          else:
+              report = orchestrator.run_audit(target, is_url=True)
           
           # Save JSON
           with open('output_reports/report.json', 'w', encoding='utf-8') as f:
               json.dump(report, f, indent=2)
+              
+          # Save Standalone Printable HTML Report
+          html_content = generate_report_html(report, auto_print=False)
+          with open('output_reports/report.html', 'w', encoding='utf-8') as f:
+              f.write(html_content)
               
           # Format Markdown Summary for GitHub Actions Run Page
           score_data = report.get('score_data', {})
           app_info = report.get('app_info', {})
           tech_info = report.get('tech_info', {})
           counts = score_data.get('counts', {})
+          target_name = app_info.get('domain') or app_info.get('package') or target
+          target_title = app_info.get('title') or target_name
           
           md_lines = [
-              '# 🛡️ APK Security Intelligence Audit Report',
-              f'**Target App:** `{app_info.get(\"title\", \"N/A\")}` (`{app_info.get(\"package\", target)}`)',
-              f'**Framework:** `{tech_info.get(\"primary_framework\", \"Native\")} ` | **Version:** `{app_info.get(\"version_name\", \"1.0\")} `',
+              f'# 🛡️ Executive Security Audit Report: {target_title}',
+              f'**Target:** `{target_name}` | **Type:** `{\"🌐 Website\" if is_web else \"📱 Android APK\"}` | **Version/Status:** `{app_info.get(\"version_name\", \"1.0\")}`',
+              f'**Framework:** `{tech_info.get(\"primary_framework\", \"Web / Native\")} ` | **Server/Target SDK:** `{app_info.get(\"target_sdk\", \"N/A\")}`',
               '',
-              f'## 📊 Security Posture Score: **{score_data.get(\"score\", 0)}/100** ({score_data.get(\"risk_level\", \"UNKNOWN\")})',
+              f'## 📊 Security Posture Score: **{score_data.get(\"score\", 0)}/100** ({score_data.get(\"risk_level\", \"AUDITED\")})',
               '',
-              '| Severity | Count |',
-              '| :--- | :--- |',
-              f'| 🔴 CRITICAL | {counts.get(\"CRITICAL\", 0)} |',
-              f'| 🟠 HIGH | {counts.get(\"HIGH\", 0)} |',
-              f'| 🟡 MEDIUM | {counts.get(\"MEDIUM\", 0)} |',
-              f'| 🔵 LOW | {counts.get(\"LOW\", 0)} |',
-              f'| ⚪ INFO | {counts.get(\"INFO\", 0)} |',
+              '| Severity | Count | Level |',
+              '| :--- | :--- | :--- |',
+              f'| 🔴 CRITICAL | **{counts.get(\"CRITICAL\", 0)}** | Urgent Exploit Exposure |',
+              f'| 🟠 HIGH | **{counts.get(\"HIGH\", 0)}** | Systemic Vulnerability |',
+              f'| 🟡 MEDIUM | **{counts.get(\"MEDIUM\", 0)}** | Hardening Needed |',
+              f'| 🔵 LOW | **{counts.get(\"LOW\", 0)}** | Minor Leakage |',
+              f'| ⚪ INFO | **{counts.get(\"INFO\", 0)}** | Observability / Informational |',
               '',
-              '## 📋 Executive Summary',
+              '## 📋 Executive Briefing',
               report.get('executive_summary', 'No summary available.'),
               '',
               '## 🔥 Top Remediation Priorities'
           ]
           
-          for prio in report.get('fix_these_first', []):
-              md_lines.append(f'- **#{prio.get(\"priority\")} [{prio.get(\"severity\")}] {prio.get(\"title\")}**')
-              md_lines.append(f'  - *Impact:* {prio.get(\"potential_impact\")}')
-              md_lines.append(f'  - *Action Required:* {prio.get(\"action_required\")}')
+          priorities = report.get('fix_these_first', [])
+          if not priorities:
+              md_lines.append('*No immediate critical security blockades found.*')
+          else:
+              for prio in priorities:
+                  md_lines.append(f'- **#{prio.get(\"priority\")} [{prio.get(\"severity\")}] {prio.get(\"title\")}**')
+                  md_lines.append(f'  - *Impact:* {prio.get(\"potential_impact\")}')
+                  md_lines.append(f'  - *Action Required:* {prio.get(\"action_required\")}')
               
-          md_content = '\n'.join(md_lines)
+          md_content = \"\n\".join(md_lines)
           with open('output_reports/summary.md', 'w', encoding='utf-8') as f:
               f.write(md_content)
               
