@@ -6,5 +6,12 @@
   "account_id": "09f855ac9a499b9d0b63529456987ffa",
   "observability": {
     "enabled": true
-  }
+  },
+  "r2_buckets": [
+    {
+      "binding": "AUDIT_BUCKET",
+      "bucket_name": "mobile-audits",
+      "preview_bucket_name": "mobile-audits-preview"
+    }
+  ]
 }

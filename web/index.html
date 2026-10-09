@@ -40,6 +40,14 @@
             </nav>
 
             <div class="sidebar-footer">
+                <div class="user-account-badge" id="sidebar-user-badge" onclick="openProfileModal()" title="Click to manage account">
+                    <div class="user-avatar" id="sidebar-user-avatar">👤</div>
+                    <div class="user-info-text">
+                        <strong id="sidebar-user-name">Guest User</strong>
+                        <span id="sidebar-user-acc">ACC-000000</span>
+                    </div>
+                    <span class="user-edit-icon">✏️</span>
+                </div>
                 <div class="ai-status">
                     <span class="status-dot online"></span>
                     <span class="status-label" id="ai-status-text">Gemini Engine Ready</span>
@@ -300,11 +308,20 @@
                 <div class="dashboard-header">
                     <div>
                         <h1>Audit History & Release Regression</h1>
-                        <p>Access past audits, print PDF reports, and track vulnerability deltas across releases.</p>
+                        <p>Access past audits, print PDF reports, and sync across Cloudflare R2 and GitHub Actions.</p>
                     </div>
-                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                        <button class="btn btn-primary btn-sm" id="sync-cloud-runs-btn" onclick="syncCloudRuns()">☁️ Sync GitHub Runs</button>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                        <span class="r2-status-pill" id="r2-status-pill" title="Cloudflare R2 Object Storage status">☁️ R2 Storage Synced</span>
+                        <button class="btn btn-primary btn-sm" id="sync-r2-btn" onclick="syncR2Storage()">☁️ Sync Cloudflare R2</button>
+                        <button class="btn btn-secondary btn-sm" id="sync-cloud-runs-btn" onclick="syncCloudRuns()">☁️ GitHub Runs</button>
                         <button class="btn btn-secondary btn-sm" onclick="loadAuditHistory()">🔄 Refresh</button>
+                    </div>
+                </div>
+
+                <div class="history-filter-bar">
+                    <div class="filter-group">
+                        <button class="filter-btn active" id="history-filter-all" onclick="setHistoryFilter('all')">🌐 All Scans</button>
+                        <button class="filter-btn" id="history-filter-mine" onclick="setHistoryFilter('mine')">👤 My Account Scans (<span id="filter-user-acc">ACC-000000</span>)</button>
                     </div>
                 </div>
 
@@ -313,6 +330,7 @@
                         <thead>
                             <tr>
                                 <th>Scan ID</th>
+                                <th>Account</th>
                                 <th>Target</th>
                                 <th>Type</th>
                                 <th>Version</th>
@@ -344,9 +362,9 @@
             <!-- TAB 4: SETTINGS & GEMINI KEY -->
             <section id="tab-settings" class="tab-pane hidden">
                 <div class="card settings-card">
-                    <h2>⚙️ Intelligence & Cloud Engine Settings</h2>
+                    <h2>⚙️ Intelligence, Cloud Engine & Storage Settings</h2>
                     <p style="color: var(--text-muted); margin-bottom: 20px;">
-                        Configure your AI synthesis keys and GitHub Actions Cloud dispatch token.
+                        Configure your AI synthesis keys, GitHub Actions Cloud dispatch token, and Cloudflare R2 bucket.
                     </p>
                     
                     <div class="form-group" style="margin-bottom: 20px;">
@@ -365,12 +383,86 @@
                         </small>
                     </div>
 
+                    <div class="form-group" style="margin-bottom: 20px;">
+                        <label>☁️ Cloudflare R2 Persistent Object Storage:</label>
+                        <div class="r2-settings-box">
+                            <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 8px;">
+                                Cloudflare R2 stores your audit reports and decompiled artifacts permanently with 0 egress costs across ephemeral server restarts.
+                            </p>
+                            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                                <span class="tag">Bucket: <code>mobile-audits</code></span>
+                                <span class="tag">Worker: <code>apk-relay.su468581.workers.dev</code></span>
+                                <button type="button" class="btn btn-secondary btn-sm" onclick="syncR2Storage()">🔄 Force R2 Sync Now</button>
+                            </div>
+                        </div>
+                    </div>
+
                     <button id="save-settings-btn" class="btn btn-primary" style="margin-top: 8px;">
                         💾 Save Settings
                     </button>
                 </div>
             </section>
         </main>
+    </div>
+
+    <!-- ONBOARDING MODAL (First Visit) -->
+    <div id="onboarding-modal" class="modal-backdrop hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div class="modal-icon">🛡️</div>
+                <h2>Welcome to Security Intelligence</h2>
+                <p>Create your private Auditor Account to track, save, and sync all your mobile and web audits.</p>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="onboarding-name-input">Your Name or Security Handle:</label>
+                    <input type="text" id="onboarding-name-input" placeholder="e.g. Shivam Upadhyay, Alex, Security Analyst" class="form-control" autocomplete="off" autofocus>
+                </div>
+                <div class="form-group" style="margin-top: 14px;">
+                    <label>Assigned Unique Account ID:</label>
+                    <div class="account-id-box">
+                        <span id="onboarding-account-id">ACC-000000</span>
+                        <button type="button" class="btn-icon" onclick="generateNewAccountId()" title="Generate another Account ID">🎲</button>
+                    </div>
+                    <small style="color: var(--text-muted); display: block; margin-top: 4px;">
+                        All your decompiled scans and cloud reports will be automatically saved to Cloudflare R2 under this ID.
+                    </small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary btn-block" id="onboarding-submit-btn" onclick="submitOnboarding()">
+                    🚀 Create Account & Start Auditing
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- USER PROFILE / ACCOUNT EDIT MODAL -->
+    <div id="profile-modal" class="modal-backdrop hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div class="modal-icon">👤</div>
+                <h2>Auditor Account Profile</h2>
+                <p>Manage your active account identifier and Cloudflare R2 sync settings.</p>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="profile-name-input">Display Name:</label>
+                    <input type="text" id="profile-name-input" class="form-control">
+                </div>
+                <div class="form-group" style="margin-top: 14px;">
+                    <label for="profile-account-input">Account ID:</label>
+                    <div class="account-id-box">
+                        <input type="text" id="profile-account-input" class="form-control" style="background: transparent; border: none; font-weight: 700; color: #38bdf8;">
+                        <button type="button" class="btn-icon" onclick="generateNewProfileAccountId()" title="Generate new ID">🎲</button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: space-between; gap: 10px;">
+                <button type="button" class="btn btn-secondary" onclick="closeProfileModal()">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveProfileChanges()">💾 Save Profile</button>
+            </div>
+        </div>
     </div>
 
     <script src="/static/app.js"></script>

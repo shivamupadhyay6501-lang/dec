@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.orchestrator import AuditOrchestrator
 from core.code_chat import AppCodeChatAssistant
+from core.r2_storage import CloudflareR2Storage
 from database.db import AuditDatabase
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -56,6 +57,16 @@ def serve_favicon():
 orchestrator = AuditOrchestrator()
 db = AuditDatabase()
 chat_assistant = AppCodeChatAssistant()
+r2_storage = CloudflareR2Storage()
+
+# Auto-sync remote R2 scans on startup
+@app.on_event("startup")
+async def startup_r2_sync():
+    try:
+        logger.info("Initializing Cloudflare R2 storage background sync...")
+        r2_storage.sync_all_to_database(db)
+    except Exception as e:
+        logger.debug(f"Startup R2 sync skipped: {e}")
 
 # Active WebSocket connections for live scan streaming
 class ConnectionManager:
@@ -84,14 +95,21 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+class UserAccountRequest(BaseModel):
+    name: str
+    account_id: str
+    meta: Optional[dict] = None
+
 class ScanUrlRequest(BaseModel):
     url_or_package: str
+    account_id: Optional[str] = None
     gemini_api_key: Optional[str] = None
     engine: Optional[str] = "local" # "local" or "github_cloud"
     github_token: Optional[str] = None
 
 class ScanWebRequest(BaseModel):
     url: str
+    account_id: Optional[str] = None
     gemini_api_key: Optional[str] = None
     engine: Optional[str] = "local"
     github_token: Optional[str] = None
@@ -102,7 +120,7 @@ class ChatAppRequest(BaseModel):
     gemini_api_key: Optional[str] = None
 
 # Background scan runner
-def run_background_scan(scan_id: str, target: str, is_url: bool, is_web: bool = False, engine: str = "local", github_token: Optional[str] = None, api_key: Optional[str] = None):
+def run_background_scan(scan_id: str, target: str, is_url: bool, is_web: bool = False, engine: str = "local", github_token: Optional[str] = None, api_key: Optional[str] = None, account_id: Optional[str] = None):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
@@ -122,11 +140,28 @@ def run_background_scan(scan_id: str, target: str, is_url: bool, is_web: bool = 
             progress_callback("[CLOUD] Initializing GitHub Actions cloud dispatcher...", 5)
             runner = GitHubActionsRunner(token=github_token)
             report = runner.execute_cloud_audit(target, gemini_api_key=api_key, progress_callback=progress_callback)
-            db.save_scan(report)
+            if report and "scan_id" in report:
+                if account_id:
+                    report["account_id"] = account_id
+                db.save_scan(report, account_id=account_id)
+                try: r2_storage.upload_scan(report)
+                except Exception: pass
         elif is_web:
             report = orchestrator.run_web_audit(target, progress_callback=progress_callback)
+            if report and "scan_id" in report:
+                if account_id:
+                    report["account_id"] = account_id
+                db.save_scan(report, account_id=account_id)
+                try: r2_storage.upload_scan(report)
+                except Exception: pass
         else:
             report = orchestrator.run_audit(target, is_url=is_url, progress_callback=progress_callback)
+            if report and "scan_id" in report:
+                if account_id:
+                    report["account_id"] = account_id
+                db.save_scan(report, account_id=account_id)
+                try: r2_storage.upload_scan(report)
+                except Exception: pass
 
         loop.run_until_complete(manager.broadcast(scan_id, {
             "type": "complete",
@@ -164,33 +199,44 @@ async def start_scan_url(req: ScanUrlRequest, background_tasks: BackgroundTasks)
     else:
         scan_id = f"SCAN-{uuid.uuid4().hex[:8].upper()}"
 
-    background_tasks.add_task(run_background_scan, scan_id, target, True, is_web, req.engine or "local", req.github_token, req.gemini_api_key)
+    background_tasks.add_task(
+        run_background_scan,
+        scan_id, target, True, is_web, req.engine or "local",
+        req.github_token, req.gemini_api_key, req.account_id
+    )
     return {
         "scan_id": scan_id,
         "status": "queued",
         "target": target,
         "type": "website" if is_web else "apk",
-        "engine": req.engine or "local"
+        "engine": req.engine or "local",
+        "account_id": req.account_id
     }
 
 @app.post("/api/scan/web")
 async def start_scan_web(req: ScanWebRequest, background_tasks: BackgroundTasks):
     import uuid
     scan_id = f"SCAN-WEB-{uuid.uuid4().hex[:6].upper()}"
-    background_tasks.add_task(run_background_scan, scan_id, req.url.strip(), True, True, req.engine or "local", req.github_token, req.gemini_api_key)
+    background_tasks.add_task(
+        run_background_scan,
+        scan_id, req.url.strip(), True, True, req.engine or "local",
+        req.github_token, req.gemini_api_key, req.account_id
+    )
     return {
         "scan_id": scan_id,
         "status": "queued",
         "target": req.url.strip(),
         "type": "website",
-        "engine": req.engine or "local"
+        "engine": req.engine or "local",
+        "account_id": req.account_id
     }
 
 @app.post("/api/scan/upload")
 async def upload_and_scan(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    gemini_api_key: Optional[str] = Form(None)
+    gemini_api_key: Optional[str] = Form(None),
+    account_id: Optional[str] = Form(None)
 ):
     import uuid
     if not file.filename.endswith((".apk", ".xapk", ".zip")):
@@ -205,17 +251,56 @@ async def upload_and_scan(
         content = await file.read()
         f.write(content)
 
-    background_tasks.add_task(run_background_scan, scan_id, saved_apk_path, False, False, gemini_api_key)
+    background_tasks.add_task(
+        run_background_scan,
+        scan_id, saved_apk_path, False, False, "local",
+        None, gemini_api_key, account_id
+    )
     return {
         "scan_id": scan_id,
         "status": "queued",
         "filename": file.filename,
-        "type": "apk"
+        "type": "apk",
+        "account_id": account_id
     }
 
 @app.get("/api/scans")
-def list_scans():
-    return db.list_scans()
+def list_scans(account_id: Optional[str] = Query(None)):
+    return db.list_scans(account_id=account_id)
+
+# --- User Accounts & Profiles ---
+@app.post("/api/user/account")
+def register_or_update_account(req: UserAccountRequest):
+    user = db.save_user(req.account_id, req.name, req.meta)
+    return {"status": "success", "user": user}
+
+@app.get("/api/user/account/{account_id}")
+def get_user_account(account_id: str):
+    user = db.get_user(account_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Account not found")
+    scans = db.list_scans(account_id=account_id)
+    user["scans"] = scans
+    return user
+
+# --- Cloudflare R2 Storage Sync ---
+@app.post("/api/storage/sync")
+def sync_r2_storage():
+    try:
+        res = r2_storage.sync_all_to_database(db)
+        return JSONResponse(content=res)
+    except Exception as e:
+        logger.error(f"Cloudflare R2 sync failed: {e}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+@app.get("/api/storage/status")
+def get_storage_status():
+    return {
+        "configured": r2_storage.is_configured(),
+        "bucket": r2_storage.bucket_name,
+        "account_id": r2_storage.account_id,
+        "worker_url": r2_storage.worker_url
+    }
 
 @app.get("/api/scans/{scan_id}")
 def get_scan(scan_id: str):

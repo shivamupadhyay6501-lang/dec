@@ -2,8 +2,11 @@
 let currentReport = null;
 let activeSocket = null;
 let currentFilter = 'ALL';
+let currentAccount = null;
+let currentHistoryFilter = 'all';
 
 document.addEventListener('DOMContentLoaded', () => {
+    initUserAccount();
     initNavigation();
     initScanForm();
     initChatInterface();
@@ -233,11 +236,13 @@ async function startWebScan(targetUrl) {
         const engineLabel = selectedEngine === 'github_cloud' ? '☁️ GitHub Actions Cloud Runner' : '⚡ Local Machine';
         appendLogLine(`[INIT] Starting Web Security Audit on ${engineLabel}...`, 'info');
         
+        const accId = currentAccount?.account_id || null;
         const resp = await fetch('/api/scan/web', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 url: targetUrl,
+                account_id: accId,
                 gemini_api_key: apiKey,
                 engine: selectedEngine,
                 github_token: ghToken
@@ -278,11 +283,13 @@ async function startUrlScan(target) {
         const engineLabel = selectedEngine === 'github_cloud' ? '☁️ GitHub Actions Cloud Runner' : '⚡ Local Machine';
         appendLogLine(`[INIT] Starting Mobile Security Audit on ${engineLabel}...`, 'info');
         
+        const accId = currentAccount?.account_id || null;
         const resp = await fetch('/api/scan/url', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 url_or_package: target,
+                account_id: accId,
                 gemini_api_key: apiKey,
                 engine: selectedEngine,
                 github_token: ghToken
@@ -307,6 +314,7 @@ async function uploadAndScanFile(file) {
     const formData = new FormData();
     formData.append('file', file);
     if (apiKey) formData.append('gemini_api_key', apiKey);
+    if (currentAccount?.account_id) formData.append('account_id', currentAccount.account_id);
 
     try {
         appendLogLine(`[UPLOAD] Uploading ${file.name} (${(file.size / (1024*1024)).toFixed(2)} MB)...`, 'info');
@@ -570,25 +578,164 @@ function renderFindingsList() {
     });
 }
 
-// --- Audit History & Version Regression ---
+// --- User Account Onboarding & Management ---
+function initUserAccount() {
+    const saved = localStorage.getItem('audit_user_account');
+    if (!saved) {
+        generateNewAccountId();
+        document.getElementById('onboarding-modal')?.classList.remove('hidden');
+    } else {
+        try {
+            currentAccount = JSON.parse(saved);
+            updateUserBadgeUI();
+        } catch (e) {
+            generateNewAccountId();
+            document.getElementById('onboarding-modal')?.classList.remove('hidden');
+        }
+    }
+}
+
+function generateNewAccountId() {
+    const randomAcc = 'ACC-' + Math.floor(100000 + Math.random() * 900000);
+    const accElem = document.getElementById('onboarding-account-id');
+    if (accElem) accElem.innerText = randomAcc;
+    return randomAcc;
+}
+
+function generateNewProfileAccountId() {
+    const randomAcc = 'ACC-' + Math.floor(100000 + Math.random() * 900000);
+    const input = document.getElementById('profile-account-input');
+    if (input) input.value = randomAcc;
+}
+
+async function submitOnboarding() {
+    const nameInput = document.getElementById('onboarding-name-input');
+    const name = nameInput?.value.trim() || 'Security Researcher';
+    const accountId = document.getElementById('onboarding-account-id')?.innerText.trim() || generateNewAccountId();
+
+    currentAccount = { name: name, account_id: accountId, created_at: new Date().toISOString() };
+    localStorage.setItem('audit_user_account', JSON.stringify(currentAccount));
+
+    updateUserBadgeUI();
+    document.getElementById('onboarding-modal')?.classList.add('hidden');
+
+    try {
+        await fetch('/api/user/account', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name, account_id: accountId })
+        });
+    } catch (err) {
+        console.debug('Account register sync:', err);
+    }
+    loadAuditHistory();
+}
+
+function updateUserBadgeUI() {
+    if (!currentAccount) return;
+    const nameElem = document.getElementById('sidebar-user-name');
+    const accElem = document.getElementById('sidebar-user-acc');
+    const filterAccElem = document.getElementById('filter-user-acc');
+    if (nameElem) nameElem.innerText = currentAccount.name || 'Auditor';
+    if (accElem) accElem.innerText = currentAccount.account_id || 'ACC-000000';
+    if (filterAccElem) filterAccElem.innerText = currentAccount.account_id || 'ACC-000000';
+}
+
+function openProfileModal() {
+    if (!currentAccount) return;
+    const nameInput = document.getElementById('profile-name-input');
+    const accInput = document.getElementById('profile-account-input');
+    if (nameInput) nameInput.value = currentAccount.name || '';
+    if (accInput) accInput.value = currentAccount.account_id || '';
+    document.getElementById('profile-modal')?.classList.remove('hidden');
+}
+
+function closeProfileModal() {
+    document.getElementById('profile-modal')?.classList.add('hidden');
+}
+
+async function saveProfileChanges() {
+    const name = document.getElementById('profile-name-input')?.value.trim() || 'Security Researcher';
+    const accountId = document.getElementById('profile-account-input')?.value.trim() || currentAccount?.account_id;
+
+    currentAccount = { ...currentAccount, name: name, account_id: accountId };
+    localStorage.setItem('audit_user_account', JSON.stringify(currentAccount));
+    updateUserBadgeUI();
+    closeProfileModal();
+
+    try {
+        await fetch('/api/user/account', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name, account_id: accountId })
+        });
+        loadAuditHistory();
+    } catch (e) {
+        console.debug('Save profile err:', e);
+    }
+}
+
+// --- Audit History & Cloudflare R2 Sync ---
+function setHistoryFilter(filter) {
+    currentHistoryFilter = filter;
+    document.getElementById('history-filter-all')?.classList.toggle('active', filter === 'all');
+    document.getElementById('history-filter-mine')?.classList.toggle('active', filter === 'mine');
+    loadAuditHistory();
+}
+
+async function syncR2Storage() {
+    const pill = document.getElementById('r2-status-pill');
+    const btn = document.getElementById('sync-r2-btn');
+    const originalText = btn ? btn.innerText : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerText = '⏳ Syncing R2...';
+    }
+    if (pill) pill.innerText = '🔄 Syncing Cloudflare R2...';
+
+    try {
+        const resp = await fetch('/api/storage/sync', { method: 'POST' });
+        const data = await resp.json();
+        if (data.status === 'success') {
+            if (pill) pill.innerText = `☁️ R2 Synced (+${data.synced_to_local} imported, +${data.pushed_to_remote} uploaded)`;
+            loadAuditHistory();
+        } else {
+            if (pill) pill.innerText = '⚠️ R2 Sync Issue';
+        }
+    } catch (err) {
+        if (pill) pill.innerText = '❌ R2 Sync Error';
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerText = originalText || '☁️ Sync Cloudflare R2';
+        }
+    }
+}
+
 async function loadAuditHistory() {
     try {
-        const resp = await fetch('/api/scans');
+        let url = '/api/scans';
+        if (currentHistoryFilter === 'mine' && currentAccount && currentAccount.account_id) {
+            url += `?account_id=${encodeURIComponent(currentAccount.account_id)}`;
+        }
+        const resp = await fetch(url);
         const scans = await resp.json();
         const tbody = document.getElementById('history-tbody');
         if (!tbody) return;
         tbody.innerHTML = '';
 
         if (!scans || scans.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted);">No past scans recorded yet.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 30px;">No scans recorded yet. Run a new audit or click <strong>☁️ Sync Cloudflare R2</strong> to pull past reports.</td></tr>';
             return;
         }
 
         scans.forEach(s => {
             const isWeb = (s.framework && s.framework.toLowerCase().includes('web')) || (s.id && s.id.includes('WEB'));
+            const isMyScan = currentAccount && s.account_id === currentAccount.account_id;
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td><code>${escapeHtml(s.id)}</code></td>
+                <td><span class="tag" style="color: ${isMyScan ? '#38bdf8' : 'var(--text-muted)'}">${escapeHtml(s.account_id || 'System')}</span></td>
                 <td><strong>${escapeHtml(s.app_title || s.package_name)}</strong></td>
                 <td><span class="badge-pill ${isWeb ? 'low' : 'info'}">${isWeb ? '🌐 Web' : '📱 APK'}</span></td>
                 <td><span class="tag">${escapeHtml(s.version_name || '1.0')}</span></td>
@@ -985,4 +1132,12 @@ window.exportHTML = exportHTML;
 window.loadAuditHistory = loadAuditHistory;
 window.sendChatMessage = sendChatMessage;
 window.syncCloudRuns = syncCloudRuns;
+window.generateNewAccountId = generateNewAccountId;
+window.generateNewProfileAccountId = generateNewProfileAccountId;
+window.submitOnboarding = submitOnboarding;
+window.openProfileModal = openProfileModal;
+window.closeProfileModal = closeProfileModal;
+window.saveProfileChanges = saveProfileChanges;
+window.setHistoryFilter = setHistoryFilter;
+window.syncR2Storage = syncR2Storage;
 

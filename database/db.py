@@ -32,8 +32,18 @@ class AuditDatabase:
     def _init_schema(self):
         with self._get_connection() as conn:
             conn.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    account_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    meta_json TEXT
+                )
+            """)
+            conn.execute("""
                 CREATE TABLE IF NOT EXISTS scans (
                     id TEXT PRIMARY KEY,
+                    account_id TEXT,
                     package_name TEXT NOT NULL,
                     app_title TEXT,
                     version_name TEXT,
@@ -51,25 +61,65 @@ class AuditDatabase:
                     report_json TEXT NOT NULL
                 )
             """)
+            # Auto-migrate if account_id column doesn't exist in older DB
+            try:
+                conn.execute("ALTER TABLE scans ADD COLUMN account_id TEXT")
+            except Exception:
+                pass # Column already exists
             conn.commit()
 
-    def save_scan(self, scan_data: Dict[str, Any]) -> str:
+    def save_user(self, account_id: str, name: str, meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        with self._get_connection() as conn:
+            conn.execute("""
+                INSERT INTO users (account_id, name, created_at, last_active, meta_json)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(account_id) DO UPDATE SET
+                    name = excluded.name,
+                    last_active = excluded.last_active,
+                    meta_json = COALESCE(excluded.meta_json, users.meta_json)
+            """, (
+                account_id,
+                name,
+                datetime.utcnow().isoformat(),
+                datetime.utcnow().isoformat(),
+                json.dumps(meta or {})
+            ))
+            conn.commit()
+        return {"account_id": account_id, "name": name}
+
+    def get_user(self, account_id: str) -> Optional[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            cursor = conn.execute("SELECT account_id, name, created_at, last_active, meta_json FROM users WHERE account_id = ?", (account_id,))
+            row = cursor.fetchone()
+            if row:
+                res = dict(row)
+                if res.get("meta_json"):
+                    try:
+                        res["meta"] = json.loads(res["meta_json"])
+                    except Exception:
+                        res["meta"] = {}
+                return res
+        return None
+
+    def save_scan(self, scan_data: Dict[str, Any], account_id: Optional[str] = None) -> str:
         scan_id = scan_data["scan_id"]
         app_info = scan_data.get("app_info", {})
         tech_info = scan_data.get("tech_info", {})
         score_data = scan_data.get("score_data", {})
         counts = score_data.get("counts", {})
+        target_account = account_id or scan_data.get("account_id")
 
         with self._get_connection() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO scans (
-                    id, package_name, app_title, version_name, version_code,
+                    id, account_id, package_name, app_title, version_name, version_code,
                     framework, security_score, risk_level,
                     critical_count, high_count, medium_count, low_count, info_count,
                     total_findings, created_at, report_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 scan_id,
+                target_account,
                 app_info.get("package", "unknown"),
                 app_info.get("title", app_info.get("package", "Target App")),
                 app_info.get("version_name", "1.0"),
@@ -83,7 +133,7 @@ class AuditDatabase:
                 counts.get("LOW", 0),
                 counts.get("INFO", 0),
                 len(scan_data.get("findings", [])),
-                datetime.utcnow().isoformat(),
+                scan_data.get("timestamp") or datetime.utcnow().isoformat(),
                 json.dumps(scan_data)
             ))
             conn.commit()
@@ -97,17 +147,29 @@ class AuditDatabase:
                 return json.loads(row["report_json"])
         return None
 
-    def list_scans(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def list_scans(self, limit: int = 100, account_id: Optional[str] = None) -> List[Dict[str, Any]]:
         with self._get_connection() as conn:
-            cursor = conn.execute("""
-                SELECT id, package_name, app_title, version_name, version_code,
-                       framework, security_score, risk_level,
-                       critical_count, high_count, medium_count, low_count, info_count,
-                       total_findings, created_at
-                FROM scans
-                ORDER BY created_at DESC
-                LIMIT ?
-            """, (limit,))
+            if account_id:
+                cursor = conn.execute("""
+                    SELECT id, account_id, package_name, app_title, version_name, version_code,
+                           framework, security_score, risk_level,
+                           critical_count, high_count, medium_count, low_count, info_count,
+                           total_findings, created_at
+                    FROM scans
+                    WHERE account_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """, (account_id, limit))
+            else:
+                cursor = conn.execute("""
+                    SELECT id, account_id, package_name, app_title, version_name, version_code,
+                           framework, security_score, risk_level,
+                           critical_count, high_count, medium_count, low_count, info_count,
+                           total_findings, created_at
+                    FROM scans
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """, (limit,))
             return [dict(row) for row in cursor.fetchall()]
 
     def compute_regression_diff(self, base_scan_id: str, new_scan_id: str) -> Dict[str, Any]:
