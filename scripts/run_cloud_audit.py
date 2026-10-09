@@ -39,6 +39,15 @@ def main():
         json.dump(report, f, indent=2)
     logger.info(f"Saved JSON report to {json_path}")
 
+    # 1.5. Persist directly to Cloudflare R2
+    try:
+        from core.r2_storage import CloudflareR2Storage
+        r2 = CloudflareR2Storage()
+        r2.upload_scan(report)
+        logger.info("Successfully synced audit report to Cloudflare R2 from cloud runner.")
+    except Exception as e:
+        logger.debug(f"Cloud runner R2 sync skipped: {e}")
+
     # 2. Save Standalone HTML Printable Report
     html_path = "output_reports/report.html"
     try:

@@ -150,8 +150,19 @@ class GitHubActionsRunner:
         target_artifact = artifacts[0]
         download_url = target_artifact.get("archive_download_url")
 
-        # Download artifact zip (requests handles redirect to S3/Azure cleanly)
-        dl_resp = requests.get(download_url, headers=self._get_headers(), timeout=45, allow_redirects=True)
+        # Step 1: Request GitHub artifact endpoint with auth, but do NOT follow redirect automatically
+        # to prevent sending the GitHub Authorization header to Azure/AWS S3 storage (which causes 403 Signature error)
+        dl_init_resp = requests.get(download_url, headers=self._get_headers(), allow_redirects=False, timeout=20)
+        
+        if dl_init_resp.status_code in (301, 302, 307, 308) and "Location" in dl_init_resp.headers:
+            storage_url = dl_init_resp.headers["Location"]
+            # Step 2: Download artifact directly from Azure/S3 pre-signed URL without GitHub Authorization header
+            dl_resp = requests.get(storage_url, timeout=60)
+        elif dl_init_resp.status_code == 200:
+            dl_resp = dl_init_resp
+        else:
+            raise RuntimeError(f"Failed to get artifact download URL: HTTP {dl_init_resp.status_code} - {dl_init_resp.text}")
+
         if dl_resp.status_code != 200:
             raise RuntimeError(f"Failed to download artifact archive: HTTP {dl_resp.status_code}")
 
