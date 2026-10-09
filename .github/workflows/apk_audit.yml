@@ -46,6 +46,7 @@ jobs:
       - name: Execute Security Audit Pipeline
         id: run_audit
         env:
+          PYTHONPATH: .
           TARGET_INPUT: ${{ github.event.inputs.target || github.event.client_payload.target || 'https://example.com' }}
           API_KEY_INPUT: ${{ github.event.inputs.gemini_api_key || github.event.client_payload.gemini_api_key || secrets.GEMINI_API_KEY }}
           GEMINI_API_KEY: ${{ github.event.inputs.gemini_api_key || github.event.client_payload.gemini_api_key || secrets.GEMINI_API_KEY }}
