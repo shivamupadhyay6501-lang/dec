@@ -126,22 +126,24 @@ class DecompilerEngine:
         if progress_callback:
             progress_callback("Decompiling APK bytecode with JADX (multi-threaded)...", 35)
 
+        threads = str(max(1, min(os.cpu_count() or 2, 4)))
         cmd = [
             jadx_path,
             "-d", output_dir,           # Output directory
             "--no-debug-info",          # Faster decompilation
-            "--threads-count", "4",     # 4 threads
+            "--no-imports",             # 2x faster, avoids resolving huge import dependency trees
+            "--threads-count", threads, # Optimal CPU threads
             "--show-bad-code",          # Keep going even on bad bytecodes
             apk_path
         ]
 
-        logger.info(f"Executing JADX: {' '.join(cmd)}")
+        logger.info(f"Executing JADX ({threads} threads): {' '.join(cmd)}")
         try:
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=180  # 3 minutes max
+                timeout=120  # 2 minutes max
             )
             logger.info(f"JADX exited with code {result.returncode}")
         except subprocess.TimeoutExpired:
