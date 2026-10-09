@@ -59,6 +59,28 @@ function switchTab(tabId) {
         loadAuditHistory();
     } else if (tabId === 'chat') {
         populateChatScanSelect();
+    } else if (tabId === 'dashboard') {
+        if (!currentReport) {
+            loadLatestScanToDashboard();
+        }
+    }
+}
+
+async function loadLatestScanToDashboard() {
+    try {
+        const resp = await fetch('/api/scans');
+        const scans = await resp.json();
+        if (scans && scans.length > 0) {
+            const latestId = scans[0].id;
+            const detailResp = await fetch(`/api/scans/${latestId}`);
+            if (detailResp.ok) {
+                const report = await detailResp.json();
+                currentReport = report;
+                renderExecutiveReport(report);
+            }
+        }
+    } catch (err) {
+        console.debug('Auto-load latest scan error:', err);
     }
 }
 
@@ -252,6 +274,7 @@ async function startWebScan(targetUrl) {
         const data = await resp.json();
         if (data.scan_id) {
             connectScanWebSocket(data.scan_id);
+            startScanPolling(data.scan_id);
         } else {
             throw new Error(data.detail || 'Failed to initialize scan');
         }
@@ -299,6 +322,7 @@ async function startUrlScan(target) {
         const data = await resp.json();
         if (data.scan_id) {
             connectScanWebSocket(data.scan_id);
+            startScanPolling(data.scan_id);
         } else {
             throw new Error(data.detail || 'Failed to initialize scan');
         }
@@ -326,6 +350,7 @@ async function uploadAndScanFile(file) {
         const data = await resp.json();
         if (data.scan_id) {
             connectScanWebSocket(data.scan_id);
+            startScanPolling(data.scan_id);
         } else {
             throw new Error(data.detail || 'Upload failed');
         }
@@ -347,6 +372,42 @@ function showLiveTerminal() {
     if (status) status.innerText = 'Initializing Pipeline...';
 }
 
+let scanPollInterval = null;
+
+function startScanPolling(scanId) {
+    if (scanPollInterval) clearInterval(scanPollInterval);
+
+    let attempts = 0;
+    scanPollInterval = setInterval(async () => {
+        attempts++;
+        try {
+            const resp = await fetch(`/api/scans/${scanId}`);
+            if (resp.status === 200) {
+                const report = await resp.json();
+                if (report && (report.scan_id === scanId || report.id === scanId)) {
+                    clearInterval(scanPollInterval);
+                    scanPollInterval = null;
+                    if (activeSocket) {
+                        try { activeSocket.close(); } catch(e) {}
+                    }
+                    appendLogLine(`[COMPLETE] Report retrieved successfully! Opening Executive Dashboard...`, 'success');
+                    currentReport = report;
+                    renderExecutiveReport(report);
+                    switchTab('dashboard');
+                    loadAuditHistory();
+                }
+            }
+        } catch (e) {
+            console.debug('Polling scan status:', e);
+        }
+
+        if (attempts > 300) {
+            clearInterval(scanPollInterval);
+            scanPollInterval = null;
+        }
+    }, 2000);
+}
+
 function connectScanWebSocket(scanId) {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/scan/${scanId}`;
@@ -357,29 +418,36 @@ function connectScanWebSocket(scanId) {
     activeSocket = new WebSocket(wsUrl);
 
     activeSocket.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
-        if (msg.type === 'progress') {
-            const fill = document.getElementById('live-progress-fill');
-            if (fill) fill.style.width = `${msg.percent}%`;
-            const pct = document.getElementById('live-scan-percent');
-            if (pct) pct.innerText = `${msg.percent}%`;
-            const status = document.getElementById('live-scan-status');
-            if (status) status.innerText = msg.message;
-            appendLogLine(`[${msg.percent}%] ${msg.message}`, 'info');
-        } else if (msg.type === 'complete') {
-            appendLogLine(`[COMPLETE] Security audit finished! Opening executive dashboard...`, 'success');
-            currentReport = msg.report;
-            setTimeout(() => {
+        try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'progress') {
+                const fill = document.getElementById('live-progress-fill');
+                if (fill) fill.style.width = `${msg.percent}%`;
+                const pct = document.getElementById('live-scan-percent');
+                if (pct) pct.innerText = `${msg.percent}%`;
+                const status = document.getElementById('live-scan-status');
+                if (status) status.innerText = msg.message;
+                appendLogLine(`[${msg.percent}%] ${msg.message}`, 'info');
+            } else if (msg.type === 'complete') {
+                if (scanPollInterval) {
+                    clearInterval(scanPollInterval);
+                    scanPollInterval = null;
+                }
+                appendLogLine(`[COMPLETE] Security audit finished! Opening executive dashboard...`, 'success');
+                currentReport = msg.report;
                 renderExecutiveReport(msg.report);
                 switchTab('dashboard');
-            }, 600);
-        } else if (msg.type === 'error') {
-            appendLogLine(`[FATAL ERROR] ${msg.error}`, 'error');
+                loadAuditHistory();
+            } else if (msg.type === 'error') {
+                appendLogLine(`[FATAL ERROR] ${msg.error}`, 'error');
+            }
+        } catch (parseErr) {
+            console.error('WebSocket parse error:', parseErr);
         }
     };
 
     activeSocket.onerror = () => {
-        appendLogLine(`[WS] Connection issue. Falling back to background polling...`, 'error');
+        console.debug('WebSocket connection error - background polling active.');
     };
 }
 
@@ -395,140 +463,146 @@ function appendLogLine(text, type = 'info') {
 
 // --- Render Executive Report ---
 function renderExecutiveReport(report) {
+    if (!report) return;
     currentReport = report;
-    const app = report.app_info || {};
-    const tech = report.tech_info || {};
-    const scoreData = report.score_data || {};
-    const counts = scoreData.counts || {};
-    const isWeb = app.is_web || (report.scan_id && report.scan_id.includes('WEB'));
 
-    // Header metadata
-    const titleElem = document.getElementById('report-app-title');
-    if (titleElem) titleElem.innerText = app.title || app.domain || app.package || 'Security Audit';
+    try {
+        const app = report.app_info || {};
+        const tech = report.tech_info || {};
+        const scoreData = report.score_data || {};
+        const counts = scoreData.counts || {};
+        const isWeb = Boolean(app.is_web || (report.scan_id && report.scan_id.includes('WEB')));
 
-    const typeBadge = document.getElementById('report-type-badge');
-    if (typeBadge) typeBadge.innerText = isWeb ? '🌐 Web Target' : '📱 Mobile APK';
+        // Header metadata
+        const titleElem = document.getElementById('report-app-title');
+        if (titleElem) titleElem.innerText = app.title || app.domain || app.package || 'Security Audit';
 
-    const pkgElem = document.getElementById('report-package');
-    if (pkgElem) pkgElem.innerText = app.domain || app.package || 'N/A';
+        const typeBadge = document.getElementById('report-type-badge');
+        if (typeBadge) typeBadge.innerText = isWeb ? '🌐 Web Target' : '📱 Mobile APK';
 
-    const verElem = document.getElementById('report-version');
-    if (verElem) verElem.innerText = isWeb ? (app.version_name || 'HTTP 200') : `v${app.version_name || '1.0'}`;
+        const pkgElem = document.getElementById('report-package');
+        if (pkgElem) pkgElem.innerText = app.domain || app.package || 'N/A';
 
-    const fwElem = document.getElementById('report-framework');
-    if (fwElem) fwElem.innerText = tech.primary_framework || (isWeb ? 'Web Application' : 'Native Android');
+        const verElem = document.getElementById('report-version');
+        if (verElem) verElem.innerText = isWeb ? (app.version_name || 'HTTP 200') : `v${app.version_name || '1.0'}`;
 
-    const sdkElem = document.getElementById('report-sdk');
-    if (sdkElem) sdkElem.innerText = isWeb ? (tech.server || app.target_sdk || 'HTTPS/TLS') : `Target SDK ${app.target_sdk || 'N/A'}`;
+        const fwElem = document.getElementById('report-framework');
+        if (fwElem) fwElem.innerText = tech.primary_framework || (isWeb ? 'Web Application' : 'Native Android');
 
-    const iconElem = document.getElementById('report-app-icon');
-    if (iconElem) {
-        if (app.icon_url) {
-            iconElem.innerHTML = `<img src="${app.icon_url}" style="width:100%;height:100%;border-radius:14px;object-fit:cover;" onerror="this.parentElement.innerHTML='${isWeb ? '🌐' : '📱'}'">`;
-        } else {
-            iconElem.innerHTML = isWeb ? '🌐' : '📱';
+        const sdkElem = document.getElementById('report-sdk');
+        if (sdkElem) sdkElem.innerText = isWeb ? (tech.server || app.target_sdk || 'HTTPS/TLS') : `Target SDK ${app.target_sdk || 'N/A'}`;
+
+        const iconElem = document.getElementById('report-app-icon');
+        if (iconElem) {
+            if (app.icon_url) {
+                iconElem.innerHTML = `<img src="${app.icon_url}" style="width:100%;height:100%;border-radius:14px;object-fit:cover;" onerror="this.parentElement.innerHTML='${isWeb ? '🌐' : '📱'}'">`;
+            } else {
+                iconElem.innerHTML = isWeb ? '🌐' : '📱';
+            }
         }
-    }
 
-    // Score Dial & Counters
-    const score = scoreData.score || 0;
-    const scoreNum = document.getElementById('report-score-num');
-    if (scoreNum) scoreNum.innerText = score;
+        // Score Dial & Counters
+        const score = typeof scoreData.score === 'number' ? scoreData.score : 0;
+        const scoreNum = document.getElementById('report-score-num');
+        if (scoreNum) scoreNum.innerText = score;
 
-    const riskLevel = document.getElementById('report-risk-level');
-    if (riskLevel) riskLevel.innerText = scoreData.rating || scoreData.risk_level || 'AUDITED';
+        const riskLevel = document.getElementById('report-risk-level');
+        if (riskLevel) riskLevel.innerText = scoreData.rating || scoreData.risk_level || 'AUDITED';
 
-    // SVG circle offset calculation (circumference = 2 * PI * 50 = 314.15)
-    const meter = document.getElementById('score-meter');
-    if (meter) {
-        const offset = 314 - (score / 100) * 314;
-        meter.style.strokeDashoffset = offset;
-        const scoreColor = score < 50 ? 'var(--sev-critical)' : score < 75 ? 'var(--sev-high)' : 'var(--sev-low)';
-        meter.style.stroke = scoreColor;
-    }
-
-    const cCrit = document.getElementById('count-critical');
-    if (cCrit) cCrit.innerText = counts.CRITICAL || 0;
-
-    const cHigh = document.getElementById('count-high');
-    if (cHigh) cHigh.innerText = counts.HIGH || 0;
-
-    const cMed = document.getElementById('count-medium');
-    if (cMed) cMed.innerText = counts.MEDIUM || 0;
-
-    const cLow = document.getElementById('count-low');
-    if (cLow) cLow.innerText = (counts.LOW || 0) + (counts.INFO || 0);
-
-    // AI Briefing
-    const summaryElem = document.getElementById('report-executive-summary');
-    if (summaryElem) summaryElem.innerText = report.executive_summary || 'No summary available.';
-
-    const aiBadge = document.getElementById('report-ai-badge');
-    if (aiBadge) aiBadge.innerText = report.ai_engine || 'Gemini 2.5 Flash';
-
-    // Top Priorities ("Fix These First")
-    const prioritiesContainer = document.getElementById('priorities-container');
-    if (prioritiesContainer) {
-        prioritiesContainer.innerHTML = '';
-        const priorities = report.fix_these_first || [];
-
-        if (priorities.length === 0) {
-            prioritiesContainer.innerHTML = '<div style="color: var(--text-muted);">🎉 No urgent critical security blockades found.</div>';
-        } else {
-            priorities.forEach((p, idx) => {
-                const item = document.createElement('div');
-                item.className = 'priority-item';
-                item.innerHTML = `
-                    <div class="priority-title">
-                        <span>#${p.priority || idx + 1} — ${escapeHtml(p.title || 'Security Issue')}</span>
-                        <span class="badge-pill ${(p.severity || 'critical').toLowerCase()}">${p.severity || 'CRITICAL'}</span>
-                    </div>
-                    <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
-                        <strong>Potential Impact:</strong> ${escapeHtml(p.potential_impact || 'High exposure.')}
-                    </div>
-                    <div style="font-size: 13px; color: #34d399; margin-top: 4px;">
-                        <strong>Action Required:</strong> ${escapeHtml(p.action_required || 'Remediate in code.')}
-                    </div>
-                `;
-                prioritiesContainer.appendChild(item);
-            });
+        // SVG circle offset calculation (circumference = 2 * PI * 50 = 314.15)
+        const meter = document.getElementById('score-meter');
+        if (meter) {
+            const offset = 314 - (score / 100) * 314;
+            meter.style.strokeDashoffset = offset;
+            const scoreColor = score < 50 ? 'var(--sev-critical)' : score < 75 ? 'var(--sev-high)' : 'var(--sev-low)';
+            meter.style.stroke = scoreColor;
         }
-    }
 
-    // Cloud & Firebase Diagnostics
-    const cloudCard = document.getElementById('cloud-diag-card');
-    const cloudContainer = document.getElementById('cloud-diag-container');
-    const cloudBadge = document.getElementById('cloud-diag-badge');
-    if (cloudCard && cloudContainer) {
-        const diags = report.cloud_diagnostics || [];
-        if (diags.length > 0) {
-            cloudCard.classList.remove('hidden');
-            if (cloudBadge) cloudBadge.innerText = `${diags.length} Endpoints Tested`;
-            cloudContainer.innerHTML = '';
-            diags.forEach(d => {
-                const item = document.createElement('div');
-                item.className = 'cloud-diag-item';
-                const isVuln = d.verdict === 'VULNERABLE';
-                const isSec = d.verdict === 'SECURE';
-                const badgeClass = isVuln ? 'critical' : (isSec ? 'low' : 'info');
-                item.innerHTML = `
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                        <div>
-                            <strong>${escapeHtml(d.service)}</strong> &bull; <code>${escapeHtml(d.target_url)}</code>
+        const cCrit = document.getElementById('count-critical');
+        if (cCrit) cCrit.innerText = counts.CRITICAL || 0;
+
+        const cHigh = document.getElementById('count-high');
+        if (cHigh) cHigh.innerText = counts.HIGH || 0;
+
+        const cMed = document.getElementById('count-medium');
+        if (cMed) cMed.innerText = counts.MEDIUM || 0;
+
+        const cLow = document.getElementById('count-low');
+        if (cLow) cLow.innerText = (counts.LOW || 0) + (counts.INFO || 0);
+
+        // AI Briefing
+        const summaryElem = document.getElementById('report-executive-summary');
+        if (summaryElem) summaryElem.innerText = report.executive_summary || 'No summary available.';
+
+        const aiBadge = document.getElementById('report-ai-badge');
+        if (aiBadge) aiBadge.innerText = report.ai_engine || 'Gemini 2.5 Flash';
+
+        // Top Priorities ("Fix These First")
+        const prioritiesContainer = document.getElementById('priorities-container');
+        if (prioritiesContainer) {
+            prioritiesContainer.innerHTML = '';
+            const priorities = report.fix_these_first || [];
+
+            if (priorities.length === 0) {
+                prioritiesContainer.innerHTML = '<div style="color: var(--text-muted);">🎉 No urgent critical security blockades found.</div>';
+            } else {
+                priorities.forEach((p, idx) => {
+                    const item = document.createElement('div');
+                    item.className = 'priority-item';
+                    item.innerHTML = `
+                        <div class="priority-title">
+                            <span>#${p.priority || idx + 1} — ${escapeHtml(p.title || 'Security Issue')}</span>
+                            <span class="badge-pill ${(p.severity || 'critical').toLowerCase()}">${p.severity || 'CRITICAL'}</span>
                         </div>
-                        <span class="badge-pill ${badgeClass}">${escapeHtml(d.verdict_badge || d.verdict)}</span>
-                    </div>
-                    <div style="font-size: 13px; color: var(--text-muted);">${escapeHtml(d.details || '')}</div>
-                `;
-                cloudContainer.appendChild(item);
-            });
-        } else {
-            cloudCard.classList.add('hidden');
+                        <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+                            <strong>Potential Impact:</strong> ${escapeHtml(p.potential_impact || 'High exposure.')}
+                        </div>
+                        <div style="font-size: 13px; color: #34d399; margin-top: 4px;">
+                            <strong>Action Required:</strong> ${escapeHtml(p.action_required || 'Remediate in code.')}
+                        </div>
+                    `;
+                    prioritiesContainer.appendChild(item);
+                });
+            }
         }
-    }
 
-    // Render findings list
-    renderFindingsList();
+        // Cloud & Firebase Diagnostics
+        const cloudCard = document.getElementById('cloud-diag-card');
+        const cloudContainer = document.getElementById('cloud-diag-container');
+        const cloudBadge = document.getElementById('cloud-diag-badge');
+        if (cloudCard && cloudContainer) {
+            const diags = report.cloud_diagnostics || [];
+            if (diags.length > 0) {
+                cloudCard.classList.remove('hidden');
+                if (cloudBadge) cloudBadge.innerText = `${diags.length} Endpoints Tested`;
+                cloudContainer.innerHTML = '';
+                diags.forEach(d => {
+                    const item = document.createElement('div');
+                    item.className = 'cloud-diag-item';
+                    const isVuln = d.verdict === 'VULNERABLE';
+                    const isSec = d.verdict === 'SECURE';
+                    const badgeClass = isVuln ? 'critical' : (isSec ? 'low' : 'info');
+                    item.innerHTML = `
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                            <div>
+                                <strong>${escapeHtml(d.service || 'Cloud Storage')}</strong> &bull; <code>${escapeHtml(d.target_url || '')}</code>
+                            </div>
+                            <span class="badge-pill ${badgeClass}">${escapeHtml(d.verdict_badge || d.verdict || 'AUDITED')}</span>
+                        </div>
+                        <div style="font-size: 13px; color: var(--text-muted);">${escapeHtml(d.details || '')}</div>
+                    `;
+                    cloudContainer.appendChild(item);
+                });
+            } else {
+                cloudCard.classList.add('hidden');
+            }
+        }
+
+        // Render findings list
+        renderFindingsList();
+    } catch (renderErr) {
+        console.error('Error in renderExecutiveReport:', renderErr);
+    }
 }
 
 function renderFindingsList() {
