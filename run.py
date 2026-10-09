@@ -12,9 +12,10 @@ if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
 
 def main():
     parser = argparse.ArgumentParser(description="APK Security Intelligence & Executive Auditor")
+    default_port = int(os.environ.get("PORT", 8000))
     parser.add_argument("command", nargs="?", default="serve", choices=["serve", "scan", "test"], help="Command to run (default: serve)")
     parser.add_argument("--target", help="Play Store URL, package name, or APK file path (for scan command)")
-    parser.add_argument("--port", type=int, default=8000, help="Port to bind the server (default: 8000)")
+    parser.add_argument("--port", type=int, default=default_port, help=f"Port to bind the server (default: {default_port})")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind the server (default: 0.0.0.0)")
 
     args = parser.parse_args()

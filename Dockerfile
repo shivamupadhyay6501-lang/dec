@@ -26,4 +26,4 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-CMD ["python3", "run.py", "serve", "--port", "8000", "--host", "0.0.0.0"]
+CMD ["sh", "-c", "python3 run.py serve --port ${PORT:-8000} --host 0.0.0.0"]
