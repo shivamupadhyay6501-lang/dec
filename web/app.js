@@ -580,6 +580,16 @@ function renderFindingsList() {
 
 // --- User Account Onboarding & Management ---
 function initUserAccount() {
+    // Bind click & key listeners directly
+    document.getElementById('onboarding-submit-btn')?.addEventListener('click', submitOnboarding);
+    document.getElementById('onboarding-name-input')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            submitOnboarding();
+        }
+    });
+    document.getElementById('sidebar-user-badge')?.addEventListener('click', openProfileModal);
+
     const saved = localStorage.getItem('audit_user_account');
     if (!saved) {
         generateNewAccountId();
