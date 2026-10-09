@@ -302,7 +302,10 @@
                         <h1>Audit History & Release Regression</h1>
                         <p>Access past audits, print PDF reports, and track vulnerability deltas across releases.</p>
                     </div>
-                    <button class="btn btn-secondary" onclick="loadAuditHistory()">🔄 Refresh History</button>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <button class="btn btn-primary btn-sm" id="sync-cloud-runs-btn" onclick="syncCloudRuns()">☁️ Sync GitHub Runs</button>
+                        <button class="btn btn-secondary btn-sm" onclick="loadAuditHistory()">🔄 Refresh</button>
+                    </div>
                 </div>
 
                 <div class="history-table-wrapper">

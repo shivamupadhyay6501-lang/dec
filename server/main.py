@@ -587,6 +587,27 @@ def get_chat_prompts(scan_id: str):
     prompts = chat_assistant.get_suggested_prompts(scan_id)
     return JSONResponse(content={"scan_id": scan_id, "prompts": prompts})
 
+# --- Cloud Actions Sync Endpoint ---
+class CloudSyncRequest(BaseModel):
+    github_token: Optional[str] = None
+
+@app.post("/api/cloud/sync")
+def sync_cloud_runs(req: CloudSyncRequest):
+    try:
+        from core.github_runner import GitHubActionsRunner
+        token = req.github_token or os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+        runner = GitHubActionsRunner(token=token)
+        reports = runner.sync_recent_cloud_runs(limit=10)
+        saved_count = 0
+        for report in reports:
+            if report and "scan_id" in report:
+                db.save_scan(report)
+                saved_count += 1
+        return {"status": "success", "synced_count": saved_count, "total_runs_checked": len(reports)}
+    except Exception as e:
+        logger.error(f"Cloud sync error: {e}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
 @app.get("/api/export/{scan_id}/html", response_class=HTMLResponse)
 def export_html_report(scan_id: str):
     scan = db.get_scan(scan_id)

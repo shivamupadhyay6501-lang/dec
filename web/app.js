@@ -609,6 +609,38 @@ async function loadAuditHistory() {
     }
 }
 
+async function syncCloudRuns() {
+    const btn = document.getElementById('sync-cloud-runs-btn');
+    const originalText = btn ? btn.innerText : '';
+    if (btn) {
+        btn.innerText = '⏳ Syncing GitHub...';
+        btn.disabled = true;
+    }
+
+    const token = localStorage.getItem('github_token') || '';
+    try {
+        const resp = await fetch('/api/cloud/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ github_token: token })
+        });
+        const data = await resp.json();
+        if (data.status === 'success') {
+            alert(`✅ Cloud Sync Complete! Successfully imported ${data.synced_count} workflow audit reports from GitHub Actions.`);
+            loadAuditHistory();
+        } else {
+            alert(`⚠️ Cloud Sync Notice: ${data.message || 'Could not fetch runs'}`);
+        }
+    } catch (err) {
+        alert(`Failed to sync from GitHub Actions: ${err.message}`);
+    } finally {
+        if (btn) {
+            btn.innerText = originalText;
+            btn.disabled = false;
+        }
+    }
+}
+
 async function loadScanDetails(scanId) {
     try {
         const resp = await fetch(`/api/scans/${scanId}`);
@@ -952,4 +984,5 @@ window.exportPDF = exportPDF;
 window.exportHTML = exportHTML;
 window.loadAuditHistory = loadAuditHistory;
 window.sendChatMessage = sendChatMessage;
+window.syncCloudRuns = syncCloudRuns;
 
