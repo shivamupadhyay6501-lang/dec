@@ -16,11 +16,12 @@ logger = logging.getLogger("cloud_runner")
 def main():
     raw_target = os.environ.get("TARGET_INPUT", "https://example.com").strip()
     target_type = os.environ.get("TARGET_TYPE_INPUT") or os.environ.get("SCAN_TYPE") or None
+    scan_id = os.environ.get("SCAN_ID_INPUT", "").strip() or None
     api_key = os.environ.get("API_KEY_INPUT") or os.environ.get("GEMINI_API_KEY") or None
 
     target, is_web = classify_target(raw_target, explicit_type=target_type)
 
-    logger.info(f"Starting GitHub Cloud Audit for target: '{target}' (Type: {'Website' if is_web else 'Android App'})")
+    logger.info(f"Starting GitHub Cloud Audit for target: '{target}' (Type: {'Website' if is_web else 'Android App'}) [Scan ID: {scan_id or 'auto'}]")
 
     os.makedirs("output_reports", exist_ok=True)
     orchestrator = AuditOrchestrator()
@@ -32,9 +33,12 @@ def main():
             logger.warning(f"Failed to set Gemini API key: {e}")
 
     if is_web:
-        report = orchestrator.run_web_audit(target)
+        report = orchestrator.run_web_audit(target, scan_id=scan_id)
     else:
-        report = orchestrator.run_audit(target, is_url=True)
+        report = orchestrator.run_audit(target, is_url=True, scan_id=scan_id)
+
+    if scan_id:
+        report["scan_id"] = scan_id
 
     # 1. Save JSON Report
     json_path = "output_reports/report.json"

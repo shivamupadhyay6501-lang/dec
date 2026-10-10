@@ -140,29 +140,19 @@ def run_background_scan(scan_id: str, target: str, is_url: bool, is_web: bool = 
             progress_callback("[CLOUD] Initializing GitHub Actions cloud dispatcher...", 5)
             runner = GitHubActionsRunner(token=github_token)
             target_type = "web" if is_web else "apk"
-            report = runner.execute_cloud_audit(target, target_type=target_type, gemini_api_key=api_key, progress_callback=progress_callback)
-            if report and "scan_id" in report:
-                if account_id:
-                    report["account_id"] = account_id
-                db.save_scan(report, account_id=account_id)
-                try: r2_storage.upload_scan(report)
-                except Exception: pass
+            report = runner.execute_cloud_audit(target, target_type=target_type, scan_id=scan_id, gemini_api_key=api_key, progress_callback=progress_callback)
         elif is_web:
-            report = orchestrator.run_web_audit(target, progress_callback=progress_callback)
-            if report and "scan_id" in report:
-                if account_id:
-                    report["account_id"] = account_id
-                db.save_scan(report, account_id=account_id)
-                try: r2_storage.upload_scan(report)
-                except Exception: pass
+            report = orchestrator.run_web_audit(target, scan_id=scan_id, progress_callback=progress_callback)
         else:
-            report = orchestrator.run_audit(target, is_url=is_url, progress_callback=progress_callback)
-            if report and "scan_id" in report:
-                if account_id:
-                    report["account_id"] = account_id
-                db.save_scan(report, account_id=account_id)
-                try: r2_storage.upload_scan(report)
-                except Exception: pass
+            report = orchestrator.run_audit(target, is_url=is_url, scan_id=scan_id, progress_callback=progress_callback)
+
+        if report:
+            report["scan_id"] = scan_id
+            if account_id:
+                report["account_id"] = account_id
+            db.save_scan(report, account_id=account_id)
+            try: r2_storage.upload_scan(report)
+            except Exception: pass
 
         loop.run_until_complete(manager.broadcast(scan_id, {
             "type": "complete",

@@ -393,6 +393,24 @@ function showLiveTerminal() {
     if (status) status.innerText = 'Initializing Pipeline...';
 }
 
+function renderTerminalActions(report) {
+    const logs = document.getElementById('terminal-logs');
+    if (!logs) return;
+    if (document.getElementById('terminal-finish-actions')) return;
+    
+    const actionBox = document.createElement('div');
+    actionBox.id = 'terminal-finish-actions';
+    actionBox.style.cssText = 'margin-top: 15px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.15); display: flex; gap: 10px; flex-wrap: wrap; align-items: center;';
+    const scanId = report.scan_id || report.id || '';
+    actionBox.innerHTML = `
+        <button class="btn btn-primary btn-sm" onclick="switchTab('dashboard')">📊 Open Executive Dashboard Now</button>
+        <button class="btn btn-secondary btn-sm" onclick="exportPDF('${scanId}')">📄 Export PDF</button>
+        <button class="btn btn-secondary btn-sm" onclick="switchTab('history')">📜 View All Scans</button>
+    `;
+    logs.appendChild(actionBox);
+    logs.scrollTop = logs.scrollHeight;
+}
+
 let scanPollInterval = null;
 
 function startScanPolling(scanId) {
@@ -411,11 +429,27 @@ function startScanPolling(scanId) {
                     if (activeSocket) {
                         try { activeSocket.close(); } catch(e) {}
                     }
-                    appendLogLine(`[COMPLETE] Report retrieved successfully! Opening Executive Dashboard...`, 'success');
+                    const score = report?.score_data?.score ?? 'N/A';
+                    const targetName = report?.app_info?.title || report?.app_info?.domain || report?.app_info?.package || 'Target';
+                    
+                    const fill = document.getElementById('live-progress-fill');
+                    if (fill) fill.style.width = '100%';
+                    const pct = document.getElementById('live-scan-percent');
+                    if (pct) pct.innerText = '100%';
+                    const status = document.getElementById('live-scan-status');
+                    if (status) status.innerText = `Audit Finished! Security Score: ${score}/100`;
+
+                    appendLogLine(`[COMPLETE] Security audit completed! ${targetName} Score: ${score}/100.`, 'success');
+                    appendLogLine(`[READY] Opening Executive Dashboard...`, 'success');
+                    
                     currentReport = report;
                     renderExecutiveReport(report);
-                    switchTab('dashboard');
                     loadAuditHistory();
+                    renderTerminalActions(report);
+
+                    setTimeout(() => {
+                        switchTab('dashboard');
+                    }, 2000);
                 }
             }
         } catch (e) {
@@ -454,11 +488,27 @@ function connectScanWebSocket(scanId) {
                     clearInterval(scanPollInterval);
                     scanPollInterval = null;
                 }
-                appendLogLine(`[COMPLETE] Security audit finished! Opening executive dashboard...`, 'success');
+                const score = msg.report?.score_data?.score ?? 'N/A';
+                const targetName = msg.report?.app_info?.title || msg.report?.app_info?.domain || msg.report?.app_info?.package || 'Target';
+                
+                const fill = document.getElementById('live-progress-fill');
+                if (fill) fill.style.width = '100%';
+                const pct = document.getElementById('live-scan-percent');
+                if (pct) pct.innerText = '100%';
+                const status = document.getElementById('live-scan-status');
+                if (status) status.innerText = `Audit Finished! Security Score: ${score}/100`;
+
+                appendLogLine(`[COMPLETE] Security audit completed! ${targetName} Score: ${score}/100.`, 'success');
+                appendLogLine(`[READY] Opening Executive Dashboard...`, 'success');
+                
                 currentReport = msg.report;
                 renderExecutiveReport(msg.report);
-                switchTab('dashboard');
                 loadAuditHistory();
+                renderTerminalActions(msg.report);
+
+                setTimeout(() => {
+                    switchTab('dashboard');
+                }, 2000);
             } else if (msg.type === 'error') {
                 appendLogLine(`[FATAL ERROR] ${msg.error}`, 'error');
             }

@@ -50,12 +50,13 @@ class AuditOrchestrator:
         self,
         apk_path_or_url: str,
         is_url: bool = False,
+        scan_id: Optional[str] = None,
         progress_callback: Optional[Callable[[str, int], None]] = None
     ) -> Dict[str, Any]:
         """
         Executes a complete automated security audit on an APK.
         """
-        scan_id = f"SCAN-{uuid.uuid4().hex[:8].upper()}"
+        scan_id = scan_id or f"SCAN-{uuid.uuid4().hex[:8].upper()}"
         job_dir = os.path.join(self.workspace_dir, scan_id)
         os.makedirs(job_dir, exist_ok=True)
 
@@ -189,12 +190,13 @@ class AuditOrchestrator:
     def run_web_audit(
         self,
         target_url: str,
+        scan_id: Optional[str] = None,
         progress_callback: Optional[Callable[[str, int], None]] = None
     ) -> Dict[str, Any]:
         """
         Executes a complete automated security audit on a website / web application.
         """
-        scan_id = f"SCAN-WEB-{uuid.uuid4().hex[:6].upper()}"
+        scan_id = scan_id or f"SCAN-WEB-{uuid.uuid4().hex[:6].upper()}"
 
         def log_progress(msg: str, pct: int):
             logger.info(f"[{pct}%] {msg}")
