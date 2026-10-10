@@ -139,7 +139,8 @@ def run_background_scan(scan_id: str, target: str, is_url: bool, is_web: bool = 
             from core.github_runner import GitHubActionsRunner
             progress_callback("[CLOUD] Initializing GitHub Actions cloud dispatcher...", 5)
             runner = GitHubActionsRunner(token=github_token)
-            report = runner.execute_cloud_audit(target, gemini_api_key=api_key, progress_callback=progress_callback)
+            target_type = "web" if is_web else "apk"
+            report = runner.execute_cloud_audit(target, target_type=target_type, gemini_api_key=api_key, progress_callback=progress_callback)
             if report and "scan_id" in report:
                 if account_id:
                     report["account_id"] = account_id
@@ -189,12 +190,9 @@ def health_check():
 @app.post("/api/scan/url")
 async def start_scan_url(req: ScanUrlRequest, background_tasks: BackgroundTasks):
     import uuid
-    target = req.url_or_package.strip()
-
-    # Detect if user entered a website URL vs an APK / Play Store target
-    is_web = False
-    if target.startswith(("http://", "https://")) and "play.google.com/store/apps" not in target:
-        is_web = True
+    from core.target_classifier import classify_target
+    target, is_web = classify_target(req.url_or_package.strip())
+    if is_web:
         scan_id = f"SCAN-WEB-{uuid.uuid4().hex[:6].upper()}"
     else:
         scan_id = f"SCAN-{uuid.uuid4().hex[:8].upper()}"
@@ -216,16 +214,18 @@ async def start_scan_url(req: ScanUrlRequest, background_tasks: BackgroundTasks)
 @app.post("/api/scan/web")
 async def start_scan_web(req: ScanWebRequest, background_tasks: BackgroundTasks):
     import uuid
+    from core.target_classifier import classify_target
+    target, _ = classify_target(req.url.strip(), explicit_type="web")
     scan_id = f"SCAN-WEB-{uuid.uuid4().hex[:6].upper()}"
     background_tasks.add_task(
         run_background_scan,
-        scan_id, req.url.strip(), True, True, req.engine or "local",
+        scan_id, target, True, True, req.engine or "local",
         req.github_token, req.gemini_api_key, req.account_id
     )
     return {
         "scan_id": scan_id,
         "status": "queued",
-        "target": req.url.strip(),
+        "target": target,
         "type": "website",
         "engine": req.engine or "local",
         "account_id": req.account_id

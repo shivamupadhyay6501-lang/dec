@@ -7,15 +7,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import json
 import logging
 from core.orchestrator import AuditOrchestrator
+from core.target_classifier import classify_target
 from server.main import generate_report_html
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("cloud_runner")
 
 def main():
-    target = os.environ.get("TARGET_INPUT", "https://example.com").strip()
+    raw_target = os.environ.get("TARGET_INPUT", "https://example.com").strip()
+    target_type = os.environ.get("TARGET_TYPE_INPUT") or os.environ.get("SCAN_TYPE") or None
     api_key = os.environ.get("API_KEY_INPUT") or os.environ.get("GEMINI_API_KEY") or None
-    is_web = target.startswith(("http://", "https://")) and "play.google.com/store/apps" not in target
+
+    target, is_web = classify_target(raw_target, explicit_type=target_type)
 
     logger.info(f"Starting GitHub Cloud Audit for target: '{target}' (Type: {'Website' if is_web else 'Android App'})")
 

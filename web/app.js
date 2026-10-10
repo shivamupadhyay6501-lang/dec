@@ -236,6 +236,13 @@ function initScanForm() {
 
 // --- Live Scan via WebSockets ---
 async function startWebScan(targetUrl) {
+    targetUrl = (targetUrl || '').trim();
+    if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+        targetUrl = 'https://' + targetUrl;
+    }
+    const webInput = document.getElementById('web-url-input');
+    if (webInput) webInput.value = targetUrl;
+
     const apiKey = localStorage.getItem('gemini_api_key') || '';
     const ghToken = localStorage.getItem('github_token') || '';
 
@@ -256,7 +263,7 @@ async function startWebScan(targetUrl) {
 
     try {
         const engineLabel = selectedEngine === 'github_cloud' ? '☁️ GitHub Actions Cloud Runner' : '⚡ Local Machine';
-        appendLogLine(`[INIT] Starting Web Security Audit on ${engineLabel}...`, 'info');
+        appendLogLine(`[INIT] Starting Web Security Audit on ${engineLabel} for ${targetUrl}...`, 'info');
         
         const accId = currentAccount?.account_id || null;
         const resp = await fetch('/api/scan/web', {
@@ -284,6 +291,20 @@ async function startWebScan(targetUrl) {
 }
 
 async function startUrlScan(target) {
+    target = (target || '').trim();
+
+    // Check if user entered a website URL or bare web domain in the mobile input
+    const isBareDomain = /^[a-zA-Z0-9-]+\.[a-zA-Z0-9.-]+(\/.*)?$/.test(target) && 
+        !target.startsWith('com.') && !target.startsWith('org.') && !target.startsWith('net.') && !target.startsWith('io.') &&
+        /\.(com|org|net|io|co|in|ai|app|dev|xyz|edu|gov|site|online|me|tv|cc)(\/|$)/i.test(target);
+    const isFullWebUrl = target.startsWith('http://') || (target.startsWith('https://') && !target.includes('play.google.com'));
+
+    if (isBareDomain || isFullWebUrl) {
+        showLiveTerminal();
+        appendLogLine(`[AUTO-DETECT] '${target}' recognized as a Website domain. Automatically routing to Web Security Auditor...`, 'info');
+        return startWebScan(target);
+    }
+
     const apiKey = localStorage.getItem('gemini_api_key') || '';
     const ghToken = localStorage.getItem('github_token') || '';
 

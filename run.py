@@ -34,11 +34,16 @@ def main():
             sys.exit(1)
         
         from core.orchestrator import AuditOrchestrator
+        from core.target_classifier import classify_target
         orchestrator = AuditOrchestrator()
         
-        target = args.target.strip()
-        is_web = target.startswith(("http://", "https://")) and "play.google.com" not in target
-        is_file = os.path.isfile(target)
+        raw_target = args.target.strip()
+        is_file = os.path.isfile(raw_target)
+        if is_file:
+            target = raw_target
+            is_web = False
+        else:
+            target, is_web = classify_target(raw_target)
 
         def cli_progress(msg, pct):
             print(f"[{pct:>3}%] {msg}", flush=True)

@@ -47,6 +47,11 @@ class APKDownloader:
                 return query["id"][0], True
         
         # Check if matches standard Android package identifier: com.example.app (contains at least one dot, valid chars)
+        from core.target_classifier import classify_target
+        _, is_web = classify_target(cleaned)
+        if is_web:
+            return cleaned, False
+
         match = re.search(r'^([a-zA-Z0-9_]+\.[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*)$', cleaned)
         if match:
             return match.group(1), True
@@ -167,6 +172,14 @@ class APKDownloader:
         """
         Orchestrates finding and downloading an APK from a Play Store URL, package name, or keyword title.
         """
+        from core.target_classifier import classify_target
+        norm_target, is_web = classify_target(package_or_url_or_query)
+        if is_web:
+            raise RuntimeError(
+                f"'{package_or_url_or_query}' appears to be a Website domain ({norm_target}), not an Android application package. "
+                f"Please run a Web Security Audit for websites, or provide an exact Android package identifier (e.g. `com.spotify.music`)."
+            )
+
         raw_target, is_exact_pkg = self.extract_package_name(package_or_url_or_query)
         os.makedirs(output_dir, exist_ok=True)
 

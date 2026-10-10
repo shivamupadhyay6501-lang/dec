@@ -30,18 +30,23 @@ class GitHubActionsRunner:
             headers["Authorization"] = f"token {self.token}"
         return headers
 
-    def trigger_workflow(self, target: str, gemini_api_key: Optional[str] = None, ref: str = "main") -> Dict[str, Any]:
+    def trigger_workflow(self, target: str, target_type: Optional[str] = None, gemini_api_key: Optional[str] = None, ref: str = "main") -> Dict[str, Any]:
         """
         Dispatches a workflow run on GitHub Actions.
         """
         if not self.token:
             raise ValueError("GitHub Personal Access Token (GITHUB_TOKEN) is required. Please configure it in Settings tab.")
 
+        from core.target_classifier import classify_target
+        normalized_target, is_web = classify_target(target, explicit_type=target_type)
+        resolved_type = target_type or ("web" if is_web else "apk")
+
         url = f"https://api.github.com/repos/{self.owner}/{self.repo}/actions/workflows/{self.workflow_id}/dispatches"
         payload = {
             "ref": ref,
             "inputs": {
-                "target": target.strip(),
+                "target": normalized_target,
+                "target_type": resolved_type,
                 "gemini_api_key": gemini_api_key or ""
             }
         }
@@ -199,7 +204,7 @@ class GitHubActionsRunner:
 
         return synced_reports
 
-    def execute_cloud_audit(self, target: str, gemini_api_key: Optional[str] = None, progress_callback: Optional[Callable[[str, int], None]] = None) -> Dict[str, Any]:
+    def execute_cloud_audit(self, target: str, target_type: Optional[str] = None, gemini_api_key: Optional[str] = None, progress_callback: Optional[Callable[[str, int], None]] = None) -> Dict[str, Any]:
         """
         Complete end-to-end cloud audit on GitHub Actions:
         Dispatch -> Wait for Runner -> Stream Execution -> Download Artifact Report.
@@ -207,7 +212,7 @@ class GitHubActionsRunner:
         if progress_callback:
             progress_callback(f"[CLOUD] Dispatching security audit on GitHub Actions ({self.owner}/{self.repo})...", 5)
 
-        dispatch_res = self.trigger_workflow(target, gemini_api_key=gemini_api_key)
+        dispatch_res = self.trigger_workflow(target, target_type=target_type, gemini_api_key=gemini_api_key)
         
         if progress_callback:
             progress_callback("[CLOUD] Workflow dispatched! Waiting for runner allocation...", 10)

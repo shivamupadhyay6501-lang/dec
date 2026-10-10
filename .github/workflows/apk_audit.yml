@@ -8,6 +8,15 @@ on:
         required: true
         default: 'https://example.com'
         type: string
+      target_type:
+        description: 'Target Type: auto, web (Website URL), or apk (Android App)'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - web
+          - apk
       gemini_api_key:
         description: 'Optional Gemini API Key (defaults to repo secret GEMINI_API_KEY)'
         required: false
@@ -48,6 +57,7 @@ jobs:
         env:
           PYTHONPATH: .
           TARGET_INPUT: ${{ github.event.inputs.target || github.event.client_payload.target || 'https://example.com' }}
+          TARGET_TYPE_INPUT: ${{ github.event.inputs.target_type || github.event.client_payload.target_type || 'auto' }}
           API_KEY_INPUT: ${{ github.event.inputs.gemini_api_key || github.event.client_payload.gemini_api_key || secrets.GEMINI_API_KEY }}
           GEMINI_API_KEY: ${{ github.event.inputs.gemini_api_key || github.event.client_payload.gemini_api_key || secrets.GEMINI_API_KEY }}
           GOOGLE_API_KEY: ${{ github.event.inputs.gemini_api_key || github.event.client_payload.gemini_api_key || secrets.GEMINI_API_KEY }}
