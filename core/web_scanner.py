@@ -627,8 +627,8 @@ class WebsiteScanner:
 
         # 5. Passive Cloud Probing
         log_pct("Probing referenced cloud storage and BaaS databases...", 85)
-        all_snippets = " ".join([f.get("evidence", {}).get("context_snippet", "") for f in js_findings]) + " " + body[:50000]
-        cloud_findings = self.cloud_prober.probe_text_for_cloud_resources(all_snippets)
+        all_snippets = " ".join([f.get("evidence", {}).get("context_snippet", "") for f in js_findings if isinstance(f, dict)]) + " " + body[:50000]
+        cloud_findings, cloud_diagnostics = self.cloud_prober.probe_text_for_cloud_resources(all_snippets)
 
         # Compile all findings
         all_findings = []
@@ -682,5 +682,6 @@ class WebsiteScanner:
             "app_info": app_info,
             "tech_info": tech_info,
             "findings": all_findings,
+            "cloud_diagnostics": cloud_diagnostics,
             "raw_fetch": fetch_res
         }

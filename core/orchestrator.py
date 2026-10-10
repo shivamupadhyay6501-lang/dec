@@ -208,6 +208,7 @@ class AuditOrchestrator:
             app_info = web_res["app_info"]
             tech_info = web_res["tech_info"]
             findings = web_res["findings"]
+            cloud_diagnostics = web_res.get("cloud_diagnostics", [])
 
             log_progress("Synthesizing executive security briefing and remediation matrix with AI...", 95)
             executive_report = self.ai_auditor.generate_executive_report(app_info, tech_info, findings)
@@ -228,6 +229,7 @@ class AuditOrchestrator:
                     "unguarded_exported_count": 0,
                     "deep_links_count": 0
                 },
+                "cloud_diagnostics": cloud_diagnostics,
                 "findings": findings
             }
 

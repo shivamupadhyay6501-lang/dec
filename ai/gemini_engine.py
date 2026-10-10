@@ -40,12 +40,33 @@ class GeminiAuditor:
                 logger.warning(f"Failed to initialize Gemini client: {e}")
 
     @staticmethod
+    def sanitize_findings(findings: Any) -> List[Dict[str, Any]]:
+        """
+        Defensively flattens and validates findings to ensure every item is a valid dictionary.
+        Gracefully unwraps nested lists/tuples if an upstream scanner returns compound structures.
+        """
+        if not findings:
+            return []
+        sanitized = []
+        for item in findings:
+            if isinstance(item, (list, tuple)):
+                for sub in item:
+                    if isinstance(sub, dict):
+                        sanitized.append(sub)
+            elif isinstance(item, dict):
+                sanitized.append(item)
+        return sanitized
+
+    @staticmethod
     def calculate_security_score(findings: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Computes the deterministic security posture score (0 - 100).
         """
+        findings = GeminiAuditor.sanitize_findings(findings)
         counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
         for f in findings:
+            if not isinstance(f, dict):
+                continue
             sev = f.get("severity", "INFO").upper()
             if sev in counts:
                 counts[sev] += 1
@@ -84,10 +105,11 @@ class GeminiAuditor:
         Generates executive narrative and top remediation priorities using Gemini Flash.
         Falls back to rule-based synthesis if API key is not present.
         """
+        findings = self.sanitize_findings(findings)
         score_data = self.calculate_security_score(findings)
 
         # Separate critical/high from others
-        critical_high = [f for f in findings if f.get("severity") in ["CRITICAL", "HIGH"]]
+        critical_high = [f for f in findings if isinstance(f, dict) and f.get("severity") in ["CRITICAL", "HIGH"]]
         
         # If Gemini client is active, request LLM synthesis
         if self.client:
@@ -130,7 +152,7 @@ Return ONLY valid JSON matching this schema:
 }
 """
 
-        candidate_models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash", "gemini-flash-latest", "gemini-pro-latest"]
+        candidate_models = ["gemini-1.5-flash-latest", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash-latest"]
         last_err = None
         for model_name in candidate_models:
             try:
@@ -162,7 +184,10 @@ Return ONLY valid JSON matching this schema:
                 }
             except Exception as err:
                 last_err = err
-                logger.debug(f"Model {model_name} failed: {err}")
+                logger.debug(f"Gemini model {model_name} failed: {err}")
+                if "RESOURCE_EXHAUSTED" in str(err) or "429" in str(err):
+                    logger.info("Gemini API quota exhausted; immediately falling back to local heuristic synthesis.")
+                    break
 
         raise last_err or RuntimeError("All candidate Gemini models failed")
 

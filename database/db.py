@@ -186,8 +186,15 @@ class AuditDatabase:
         if not base or not new:
             raise ValueError("One or both scan IDs not found")
 
-        base_findings = {f["id"] + ":" + f.get("title", ""): f for f in base.get("findings", [])}
-        new_findings = {f["id"] + ":" + f.get("title", ""): f for f in new.get("findings", [])}
+        base_findings = {}
+        for f in base.get("findings", []):
+            if isinstance(f, dict) and "id" in f:
+                base_findings[f"{f['id']}:{f.get('title', '')}"] = f
+
+        new_findings = {}
+        for f in new.get("findings", []):
+            if isinstance(f, dict) and "id" in f:
+                new_findings[f"{f['id']}:{f.get('title', '')}"] = f
 
         base_keys = set(base_findings.keys())
         new_keys = set(new_findings.keys())
