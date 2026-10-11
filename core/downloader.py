@@ -180,8 +180,41 @@ class APKDownloader:
                 f"Please run a Web Security Audit for websites, or provide an exact Android package identifier (e.g. `com.spotify.music`)."
             )
 
-        raw_target, is_exact_pkg = self.extract_package_name(package_or_url_or_query)
         os.makedirs(output_dir, exist_ok=True)
+
+        # Direct URL to an APK / package archive (e.g. Cloudflare R2 relayed upload)
+        if package_or_url_or_query.startswith(("http://", "https://")) and (
+            package_or_url_or_query.lower().endswith((".apk", ".xapk", ".zip")) or
+            "/storage/apks/" in package_or_url_or_query.lower() or
+            "/apks/" in package_or_url_or_query.lower()
+        ):
+            target_path = os.path.join(output_dir, "app-uploaded.apk")
+            if progress_callback:
+                progress_callback(f"Streaming APK from Cloudflare relay...", 20)
+            resp = requests.get(package_or_url_or_query, headers=self.HEADERS, stream=True, timeout=120)
+            resp.raise_for_status()
+            total_size = int(resp.headers.get('content-length', 0))
+            downloaded = 0
+            with open(target_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=1024 * 64):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total_size > 0 and progress_callback:
+                            percent = min(90, int(20 + (downloaded / total_size) * 70))
+                            progress_callback(f"Streaming APK: {downloaded // (1024*1024)}MB / {total_size // (1024*1024)}MB", percent)
+
+            return {
+                "apk_path": target_path,
+                "package_name": "uploaded_app",
+                "app_meta": {
+                    "title": "Uploaded Android Application",
+                    "package_name": "uploaded_app",
+                    "developer": "Uploaded Binary Archive"
+                }
+            }
+
+        raw_target, is_exact_pkg = self.extract_package_name(package_or_url_or_query)
 
         package_name = raw_target
         app_meta = {}

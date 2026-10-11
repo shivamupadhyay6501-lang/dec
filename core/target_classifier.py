@@ -41,6 +41,8 @@ def classify_target(target: str, explicit_type: Optional[str] = None) -> Tuple[s
     if cleaned.startswith(("http://", "https://")):
         if "play.google.com/store/apps" in cleaned or "market://" in cleaned:
             return cleaned, False
+        if cleaned.lower().endswith((".apk", ".xapk", ".zip")) or "/storage/apks/" in cleaned.lower() or "/apks/" in cleaned.lower():
+            return cleaned, False
         return cleaned, True
 
     if cleaned.startswith("market://"):

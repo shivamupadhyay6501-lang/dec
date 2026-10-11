@@ -88,6 +88,37 @@ class CloudflareR2Storage:
 
         return False
 
+    def upload_apk_file(self, local_path: str, key: str) -> Optional[str]:
+        """
+        Uploads a local APK file to Cloudflare R2 storage via the Edge Worker.
+        Returns the public download URL on success.
+        """
+        if not os.path.exists(local_path):
+            logger.error(f"Cannot upload APK: file {local_path} does not exist.")
+            return None
+
+        clean_key = key.lstrip("/")
+        url = f"{self.worker_url}/storage/{clean_key}"
+        try:
+            with open(local_path, "rb") as f:
+                data = f.read()
+
+            headers = {
+                "Content-Type": "application/vnd.android.package-archive",
+                "X-R2-Bucket": self.bucket_name
+            }
+            resp = requests.put(url, data=data, headers=headers, timeout=120)
+            if resp.status_code in (200, 201, 204):
+                public_download_url = f"{self.worker_url}/storage/{clean_key}"
+                logger.info(f"Successfully uploaded APK ({len(data)} bytes) to Cloudflare R2: {public_download_url}")
+                return public_download_url
+            else:
+                logger.error(f"Failed to upload APK to Cloudflare R2: {resp.status_code} - {resp.text}")
+        except Exception as e:
+            logger.error(f"Error uploading APK to Cloudflare R2: {e}")
+
+        return None
+
     def _update_index_manifest(self, scan_data: Dict[str, Any]):
         """Updates the top-level scans index manifest in R2 for rapid history synchronization."""
         try:

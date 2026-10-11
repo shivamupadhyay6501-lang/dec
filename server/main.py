@@ -139,8 +139,19 @@ def run_background_scan(scan_id: str, target: str, is_url: bool, is_web: bool = 
             from core.github_runner import GitHubActionsRunner
             progress_callback("[CLOUD] Initializing GitHub Actions cloud dispatcher...", 5)
             runner = GitHubActionsRunner(token=github_token)
+
+            cloud_target = target
+            if not is_url and not is_web and os.path.exists(target):
+                apk_mb = round(os.path.getsize(target) / (1024 * 1024), 1)
+                progress_callback(f"[CLOUD] Relaying APK ({apk_mb} MB) to Cloudflare Edge...", 8)
+                r2_key = f"apks/{scan_id}_{os.path.basename(target)}"
+                r2_url = r2_storage.upload_apk_file(target, key=r2_key)
+                if not r2_url:
+                    raise RuntimeError("Failed to relay APK to Cloudflare R2 storage for cloud execution. Please verify network connectivity.")
+                cloud_target = r2_url
+
             target_type = "web" if is_web else "apk"
-            report = runner.execute_cloud_audit(target, target_type=target_type, scan_id=scan_id, gemini_api_key=api_key, progress_callback=progress_callback)
+            report = runner.execute_cloud_audit(cloud_target, target_type=target_type, scan_id=scan_id, gemini_api_key=api_key, progress_callback=progress_callback)
         elif is_web:
             report = orchestrator.run_web_audit(target, scan_id=scan_id, progress_callback=progress_callback)
         else:
@@ -226,7 +237,9 @@ async def upload_and_scan(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     gemini_api_key: Optional[str] = Form(None),
-    account_id: Optional[str] = Form(None)
+    account_id: Optional[str] = Form(None),
+    engine: Optional[str] = Form("local"),
+    github_token: Optional[str] = Form(None)
 ):
     import uuid
     if not file.filename.endswith((".apk", ".xapk", ".zip")):
@@ -243,14 +256,15 @@ async def upload_and_scan(
 
     background_tasks.add_task(
         run_background_scan,
-        scan_id, saved_apk_path, False, False, "local",
-        None, gemini_api_key, account_id
+        scan_id, saved_apk_path, False, False, engine or "local",
+        github_token, gemini_api_key, account_id
     )
     return {
         "scan_id": scan_id,
         "status": "queued",
         "filename": file.filename,
         "type": "apk",
+        "engine": engine or "local",
         "account_id": account_id
     }
 

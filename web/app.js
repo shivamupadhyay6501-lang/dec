@@ -354,15 +354,33 @@ async function startUrlScan(target) {
 
 async function uploadAndScanFile(file) {
     const apiKey = localStorage.getItem('gemini_api_key') || '';
+    const ghToken = localStorage.getItem('github_token') || '';
+
+    if (selectedEngine === 'github_cloud' && !ghToken) {
+        const runLocal = confirm('GitHub Personal Access Token is not set for Cloud Runner.\n\nClick OK to run this scan on your Local Machine instead,\nor Cancel to open Settings and enter your GitHub PAT.');
+        if (runLocal) {
+            selectedEngine = 'local';
+            localStorage.setItem('scan_engine', 'local');
+            document.getElementById('engine-local')?.classList.add('active');
+            document.getElementById('engine-cloud')?.classList.remove('active');
+        } else {
+            switchTab('settings');
+            return;
+        }
+    }
+
     showLiveTerminal();
 
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('engine', selectedEngine);
+    if (ghToken) formData.append('github_token', ghToken);
     if (apiKey) formData.append('gemini_api_key', apiKey);
     if (currentAccount?.account_id) formData.append('account_id', currentAccount.account_id);
 
     try {
-        appendLogLine(`[UPLOAD] Uploading ${file.name} (${(file.size / (1024*1024)).toFixed(2)} MB)...`, 'info');
+        const engineLabel = selectedEngine === 'github_cloud' ? '☁️ GitHub Actions Cloud Runner' : '⚡ Local Machine';
+        appendLogLine(`[INIT] Uploading ${file.name} (${(file.size / (1024*1024)).toFixed(2)} MB) to ${engineLabel}...`, 'info');
         const resp = await fetch('/api/scan/upload', {
             method: 'POST',
             body: formData

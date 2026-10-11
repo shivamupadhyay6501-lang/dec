@@ -105,6 +105,36 @@ class CodeAnalyzer:
             "remediation": "Generate unique encryption keys at runtime and store them securely inside the hardware-backed Android Keystore."
         },
         {
+            "id": "CODE-BILLING-001",
+            "name": "Insecure Client-Side In-App Purchase / Billing Verification (Frida / Smali Bypassable)",
+            "pattern": r"(?i)(?:onPurchasesUpdated|handlePurchase)\s*\([^)]*\)\s*\{[^}]*(?:getPurchaseState\s*\(\s*\)\s*==\s*(?:1|PurchaseState\.PURCHASED)|setPremium\s*\(\s*true\s*\)|isPro\s*=\s*true)",
+            "severity": "CRITICAL",
+            "category": "In-App Billing & Subscription Security",
+            "confidence": 0.95,
+            "impact": "The application unlocks premium features client-side based solely on the Google Play BillingClient callback without backend receipt verification. Attackers can trivially bypass purchases using Frida runtime hooks, smali modification, or proxy injection.",
+            "remediation": "Do not verify purchases or unlock entitlements on the mobile client. Transmit the `purchaseToken` and `orderId` to your backend server and validate it with the official Google Play Developer API (`purchases.subscriptionsv2.get`)."
+        },
+        {
+            "id": "CODE-BILLING-002",
+            "name": "Unprotected Premium Entitlement Local Storage",
+            "pattern": r"(?i)(?:putBoolean|putString)\s*\(\s*[\"'](?:is_pro|is_premium|is_subscribed|has_subscription|premium_user|vip_status|pro_unlocked)[\"']\s*,\s*(?:true|[\"']active[\"'])",
+            "severity": "HIGH",
+            "category": "In-App Billing & Subscription Security",
+            "confidence": 0.92,
+            "impact": "Premium entitlement state is written directly to local SharedPreferences. Attackers on rooted devices or running patched APKs can modify shared_prefs XML files to grant themselves lifetime access without paying.",
+            "remediation": "Validate subscription entitlements dynamically from an authenticated backend session or store cryptographic server-signed tokens instead of raw boolean flags."
+        },
+        {
+            "id": "CODE-PAYMENT-001",
+            "name": "Client-Side Payment Gateway Callback Trust",
+            "pattern": r"(?i)(?:onPaymentSuccess|PaymentResultListener|onTransactionSuccess)\s*\([^)]*\)\s*\{[^}]*(?:fulfillOrder|grantAccess|deliverProduct|updateBalance)\s*\(",
+            "severity": "HIGH",
+            "category": "Payment Gateway Integration",
+            "confidence": 0.90,
+            "impact": "Fulfills digital goods or updates account balance directly inside the mobile client's payment success handler without waiting for an authoritative server-side webhook signature.",
+            "remediation": "Fulfill orders exclusively when your backend receives an authenticated webhook signature from the payment processor (e.g. Stripe `checkout.session.completed` or Razorpay `payment.captured`)."
+        },
+        {
             "id": "CODE-RANDOM-001",
             "name": "Insecure Random Number Generator for Security Operations",
             "pattern": r"new\s+java\.util\.Random\s*\(",

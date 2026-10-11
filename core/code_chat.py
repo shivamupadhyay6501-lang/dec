@@ -177,8 +177,8 @@ class AppCodeChatAssistant:
         # Try Gemini Synthesis
         api_key = gemini_api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         if api_key:
-            try:
-                system_prompt = f"""You are an elite Mobile & Web Security Expert and Reverse Engineering Assistant.
+            candidate_models = ["gemini-flash-latest", "gemini-3.8-flash", "gemini-flash-lite-latest"]
+            system_prompt = f"""You are an elite, helpful, and technically authoritative Mobile & Web Security Architect and Reverse Engineering Assistant.
 Target Application: {target_name}
 Framework: {tech_info.get('primary_framework', 'Native')}
 Security Score: {report.get('score_data', {}).get('score', 'N/A')}/100
@@ -194,29 +194,37 @@ Live Cloud / Firebase Diagnostics:
 
 User Question: "{query}"
 
-Answer the user's question with precise technical accuracy.
-Reference specific file names and line numbers from the decompiled snippets.
-Include Markdown code blocks with syntax highlighting where helpful.
-Highlight any security risks, OWASP MASVS/Top 10 implications, and practical remediation steps."""
+Instructions:
+1. Act like a true intelligent, conversational AI assistant. Directly address the user's question, intent, or request.
+2. If the user asks for links (such as Firebase database links, endpoints, or cloud storage URLs discovered in the scan), construct and provide the exact clickable links and explain how to verify or secure them.
+3. If the user asks about reverse engineering, payment flows, subscriptions, logic bypasses, or decompiled code, give a thorough, clear explanation with practical steps.
+4. Reference specific file names and line numbers from the decompiled snippets when relevant.
+5. Provide Markdown code blocks with syntax highlighting where helpful.
+6. Even if the user asks something conversational or out-of-the-box related to this target, answer helpfully and intelligently instead of returning raw snippets."""
 
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
-                payload = {
-                    "contents": [{"parts": [{"text": system_prompt}]}],
-                    "generationConfig": {"temperature": 0.2, "maxOutputTokens": 2048}
-                }
-                r = requests.post(url, json=payload, timeout=20)
-                if r.status_code == 200:
-                    resp_json = r.json()
-                    candidate = resp_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text")
-                    if candidate:
-                        return {
-                            "answer": candidate,
-                            "snippets": snippets,
-                            "scan_id": scan_id,
-                            "ai_powered": True
-                        }
-            except Exception as e:
-                logger.warning(f"Gemini chat synthesis failed: {e}. Using intelligent heuristic code synthesizer.")
+            for model_name in candidate_models:
+                try:
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+                    payload = {
+                        "contents": [{"parts": [{"text": system_prompt}]}],
+                        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 2048}
+                    }
+                    r = requests.post(url, json=payload, timeout=20)
+                    if r.status_code == 200:
+                        resp_json = r.json()
+                        candidates = resp_json.get("candidates", [])
+                        if candidates:
+                            text_part = candidates[0].get("content", {}).get("parts", [{}])[0].get("text")
+                            if text_part:
+                                return {
+                                    "answer": text_part,
+                                    "snippets": snippets,
+                                    "scan_id": scan_id,
+                                    "ai_powered": True,
+                                    "model": model_name
+                                }
+                except Exception as e:
+                    logger.debug(f"Gemini chat model {model_name} failed: {e}")
 
         # Heuristic Code Search & Synthesis Fallback
         return self._heuristic_code_answer(query, target_name, tech_info, snippets, findings, cloud_diag, scan_id)
