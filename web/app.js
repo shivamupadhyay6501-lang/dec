@@ -722,6 +722,31 @@ function renderFindingsList() {
         const codeSnippet = ev.context_snippet ? `<pre class="code-viewer"><code>${escapeHtml(ev.context_snippet)}</code></pre>` : '';
         const loc = ev.file ? `${ev.file}${ev.line ? ':' + ev.line : ''}` : 'Target Configuration';
 
+        const secretVal = ev.matched_secret || (ev.detected_preview && (
+            (f.category || '').toLowerCase().includes('credential') || 
+            (f.category || '').toLowerCase().includes('secret') || 
+            (f.category || '').toLowerCase().includes('key') || 
+            (f.title || '').toLowerCase().includes('key') || 
+            (f.title || '').toLowerCase().includes('token') || 
+            (f.title || '').toLowerCase().includes('secret')
+        ) ? ev.detected_preview : null);
+
+        const secretBoxHtml = secretVal ? `
+            <div class="secret-card-box" style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 8px; padding: 10px 14px; margin: 10px 0;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <span style="font-size: 11px; font-weight: 800; color: #f87171; letter-spacing: 0.5px; text-transform: uppercase;">
+                        🔑 DISCOVERED LEAKED SECRET / API KEY VALUE:
+                    </span>
+                    <button class="btn btn-secondary btn-sm" style="padding: 2px 8px; font-size: 11px; background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.5); color: #fecaca;" onclick="copySecretText('${escapeHtml(secretVal).replace(/'/g, "\\'")}', this)">
+                        📋 Copy Key
+                    </button>
+                </div>
+                <div style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #fecaca; word-break: break-all; background: rgba(0,0,0,0.5); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08); user-select: all;">
+                    ${escapeHtml(secretVal)}
+                </div>
+            </div>
+        ` : '';
+
         card.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <h3 style="font-size: 16px; font-weight: 700;">${escapeHtml(f.title || 'Security Finding')}</h3>
@@ -732,6 +757,7 @@ function renderFindingsList() {
                 <span>📍 Location: <code>${escapeHtml(loc)}</code></span>
             </div>
             <p style="color: #cbd5e1; font-size: 14px; margin-bottom: 8px;">${escapeHtml(f.impact || '')}</p>
+            ${secretBoxHtml}
             ${codeSnippet}
             <div class="remediation-box">
                 <strong>💡 Remediation:</strong> ${escapeHtml(f.remediation || 'Follow secure coding practices.')}
@@ -740,6 +766,22 @@ function renderFindingsList() {
         container.appendChild(card);
     });
 }
+
+window.copySecretText = function(text, btn) {
+    if (!navigator.clipboard) {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+    } else {
+        navigator.clipboard.writeText(text);
+    }
+    const orig = btn.innerText;
+    btn.innerText = '✅ Copied!';
+    setTimeout(() => { btn.innerText = orig; }, 2000);
+};
 
 // --- User Account Onboarding & Management ---
 function initUserAccount() {
@@ -1300,26 +1342,77 @@ function formatChatMarkdown(text) {
     if (!text) return '';
     let html = escapeHtml(text);
 
-    // Code blocks with triple backticks ```java ... ```
+    // 1. Code blocks ```lang\ncode```
+    const codeBlocks = [];
     html = html.replace(/```([a-zA-Z0-9_\-]+)?\n([\s\S]*?)```/g, (match, lang, code) => {
-        return `<pre class="code-viewer"><div class="code-lang-tag">${lang || 'code'}</div><code>${code.trim()}</code></pre>`;
+        const id = `__CODE_BLOCK_${codeBlocks.length}__`;
+        codeBlocks.push(`<pre class="code-viewer"><div class="code-lang-tag">${lang || 'code'}</div><code>${code.trim()}</code></pre>`);
+        return id;
     });
 
-    // Inline code `code`
+    // 2. Inline code `code`
     html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
 
-    // Bold **text**
+    // 3. Bold **text**
     html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 
-    // Headers ###, ####
+    // 4. Headers ### and ####
     html = html.replace(/^#### (.*$)/gim, '<h4 style="margin: 10px 0 4px 0; color: #38bdf8;">$1</h4>');
     html = html.replace(/^### (.*$)/gim, '<h3 style="margin: 12px 0 6px 0; color: #818cf8;">$1</h3>');
 
-    // Bullet points - list item
+    // 5. Blockquote / Alert > text
+    html = html.replace(/^&gt;\s*(.*$)/gim, '<blockquote style="border-left: 3px solid #818cf8; padding-left: 10px; margin: 8px 0; color: #94a3b8; font-style: italic;">$1</blockquote>');
+
+    // 6. Markdown links [text](url) -> Clickable Links!
+    html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color: #38bdf8; font-weight: 600; text-decoration: underline;">$1 ↗</a>');
+
+    // 7. Markdown Tables (| col | col |)
+    const lines = html.split('\n');
+    let inTable = false;
+    let tableHtml = [];
+    let newLines = [];
+    for (let line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+            if (trimmed.includes('---')) {
+                continue;
+            }
+            if (!inTable) {
+                inTable = true;
+                tableHtml.push('<div style="overflow-x: auto; margin: 10px 0;"><table style="width: 100%; border-collapse: collapse; font-size: 13px; background: rgba(0,0,0,0.3); border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); width: 100%;">');
+            }
+            const cells = trimmed.split('|').slice(1, -1).map(c => c.trim());
+            const tag = tableHtml.length === 1 ? 'th' : 'td';
+            const cellStyle = tag === 'th' 
+                ? 'padding: 8px 12px; background: rgba(99, 102, 241, 0.15); color: #c7d2fe; text-align: left; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.1);' 
+                : 'padding: 7px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); color: #e2e8f0;';
+            tableHtml.push(`<tr>${cells.map(c => `<${tag} style="${cellStyle}">${c}</${tag}>`).join('')}</tr>`);
+        } else {
+            if (inTable) {
+                inTable = false;
+                tableHtml.push('</table></div>');
+                newLines.push(tableHtml.join(''));
+                tableHtml = [];
+            }
+            newLines.push(line);
+        }
+    }
+    if (inTable) {
+        tableHtml.push('</table></div>');
+        newLines.push(tableHtml.join(''));
+    }
+    html = newLines.join('\n');
+
+    // 8. Bullet points - item
     html = html.replace(/^\- (.*$)/gim, '<li style="margin-left: 18px; margin-bottom: 4px;">$1</li>');
 
-    // Line breaks
+    // 9. Line breaks
     html = html.replace(/\n\n/g, '<br><br>').replace(/\n/g, '<br>');
+
+    // 10. Restore code blocks
+    codeBlocks.forEach((block, idx) => {
+        html = html.replace(`__CODE_BLOCK_${idx}__`, block);
+    });
 
     return html;
 }

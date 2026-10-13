@@ -8,6 +8,24 @@ from database.db import AuditDatabase
 
 logger = logging.getLogger("scanner.code_chat")
 
+def _load_env_if_missing():
+    if not os.environ.get("GEMINI_API_KEY"):
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        env_file = os.path.join(base_dir, ".env")
+        if os.path.exists(env_file):
+            try:
+                with open(env_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            if k.strip() in ("GEMINI_API_KEY", "GOOGLE_API_KEY") and not os.environ.get(k.strip()):
+                                os.environ[k.strip()] = v.strip()
+            except Exception:
+                pass
+
+_load_env_if_missing()
+
 class AppCodeChatAssistant:
     """
     RAG-powered conversational engine that enables developers and auditors
@@ -111,8 +129,9 @@ class AppCodeChatAssistant:
                 full_path = os.path.join(root, file)
                 rel_path = os.path.relpath(full_path, scan_dir).replace("\\", "/")
 
-                # Skip common android support noisy libraries
-                if any(noise in rel_path.lower() for noise in ["androidx/core", "google/android/gms", "kotlin/", "io/reactivex"]):
+                # Skip common noisy third-party libraries unless explicitly queried
+                noise_patterns = ["androidx/", "android/support/", "google/android/", "kotlin/", "kotlinx/", "io/reactivex", "com/itextpdf", "org/bouncycastle", "com/airbnb/lottie"]
+                if not any(np in query.lower() for np in ["androidx", "support", "kotlin", "lottie"]) and any(noise in rel_path.lower() for noise in noise_patterns):
                     continue
 
                 try:
@@ -170,37 +189,68 @@ class AppCodeChatAssistant:
         # Retrieve matching code snippets from decompiled tree
         snippets = self._search_decompiled_sources(scan_id, query)
 
+        # Extract discovered secrets and credentials
+        secrets_list = []
+        for f in findings:
+            ev = f.get("evidence", {})
+            sec_val = ev.get("matched_secret") or ev.get("detected_preview")
+            cat = (f.get("category") or "").lower()
+            tit = (f.get("title") or "").lower()
+            if sec_val and ("secret" in cat or "credential" in cat or "key" in cat or "token" in tit or "secret" in tit or "key" in tit):
+                secrets_list.append({
+                    "title": f.get("title"),
+                    "severity": f.get("severity"),
+                    "file": ev.get("file"),
+                    "line": ev.get("line"),
+                    "secret_value": sec_val
+                })
+
+        # Compact snippets for Gemini context (max 3 snippets, max 35 lines each)
+        compact_snippets = []
+        for s in snippets[:3]:
+            content_lines = s.get("content", "").splitlines()[:35]
+            compact_snippets.append({
+                "file": s.get("file"),
+                "lines": f"{s.get('line_start')}-{min(s.get('line_end', 0), s.get('line_start', 1) + 35)}",
+                "code": "\n".join(content_lines)
+            })
+
         # Build prompt context
         target_name = app_info.get("domain") or app_info.get("package") or app_info.get("title", "Target App")
-        findings_summary = [f"[{f.get('severity')}] {f.get('title')}: {f.get('exposure') or f.get('impact')}" for f in findings[:10]]
+        findings_summary = [f"[{f.get('severity')}] {f.get('title')}: {f.get('exposure') or f.get('impact')}" for f in findings[:8]]
 
-        # Try Gemini Synthesis
+        # Try Gemini Generative Synthesis
         api_key = gemini_api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         if api_key:
-            candidate_models = ["gemini-flash-latest", "gemini-3.8-flash", "gemini-flash-lite-latest"]
-            system_prompt = f"""You are an elite, helpful, and technically authoritative Mobile & Web Security Architect and Reverse Engineering Assistant.
+            import time
+            candidate_models = ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-flash-lite-latest"]
+            system_prompt = f"""You are an elite, highly intelligent, conversational Mobile & Web Security Architect and Reverse Engineering Assistant.
 Target Application: {target_name}
 Framework: {tech_info.get('primary_framework', 'Native')}
 Security Score: {report.get('score_data', {}).get('score', 'N/A')}/100
 
-Extracted Code Snippets from Decompiled Sources:
-{json.dumps(snippets, indent=2)}
+Discovered Leaked Secrets & API Keys:
+{json.dumps(secrets_list, indent=2)}
+
+Live Cloud & Firebase Endpoints:
+{json.dumps(cloud_diag, indent=2)}
+
+Decompiled Code Snippets:
+{json.dumps(compact_snippets, indent=2)}
 
 Top Security Findings:
 {json.dumps(findings_summary, indent=2)}
 
-Live Cloud / Firebase Diagnostics:
-{json.dumps(cloud_diag, indent=2)}
-
 User Question: "{query}"
 
 Instructions:
-1. Act like a true intelligent, conversational AI assistant. Directly address the user's question, intent, or request.
-2. If the user asks for links (such as Firebase database links, endpoints, or cloud storage URLs discovered in the scan), construct and provide the exact clickable links and explain how to verify or secure them.
-3. If the user asks about reverse engineering, payment flows, subscriptions, logic bypasses, or decompiled code, give a thorough, clear explanation with practical steps.
-4. Reference specific file names and line numbers from the decompiled snippets when relevant.
-5. Provide Markdown code blocks with syntax highlighting where helpful.
-6. Even if the user asks something conversational or out-of-the-box related to this target, answer helpfully and intelligently instead of returning raw snippets."""
+1. Act like a true intelligent, conversational AI assistant. You understand Hindi, Hinglish, and English natively. If the user asks in Hinglish (e.g. "bro ye firebase ka link bana k de" or "kya ye safe hai"), respond conversationally in natural, friendly, expert Hinglish/English.
+2. If the user asks for links (such as Firebase database links, endpoints, or cloud storage URLs discovered in the scan), construct and provide the exact clickable links (e.g. `https://<db>.firebaseio.com/.json`) and explain how to verify or test them with curl.
+3. If the user asks about API keys, tokens, or credentials found in the app, list them clearly with their exact values and location.
+4. If the user asks about reverse engineering, payment flows, subscriptions, logic bypasses, or decompiled code, give a thorough, clear explanation with practical steps.
+5. Reference specific file names and line numbers from the decompiled snippets when relevant.
+6. Provide Markdown code blocks with syntax highlighting where helpful.
+7. Always provide an insightful, directly actionable answer to the user's intent instead of just pasting raw code."""
 
             for model_name in candidate_models:
                 try:
@@ -209,7 +259,7 @@ Instructions:
                         "contents": [{"parts": [{"text": system_prompt}]}],
                         "generationConfig": {"temperature": 0.3, "maxOutputTokens": 2048}
                     }
-                    r = requests.post(url, json=payload, timeout=20)
+                    r = requests.post(url, json=payload, timeout=12)
                     if r.status_code == 200:
                         resp_json = r.json()
                         candidates = resp_json.get("candidates", [])
@@ -223,47 +273,133 @@ Instructions:
                                     "ai_powered": True,
                                     "model": model_name
                                 }
+                    elif r.status_code == 429:
+                        logger.warning(f"Model {model_name} quota 429: {r.text[:80]}")
+                        break
+                    else:
+                        logger.warning(f"Model {model_name} HTTP {r.status_code}: {r.text[:80]}")
                 except Exception as e:
                     logger.debug(f"Gemini chat model {model_name} failed: {e}")
 
         # Heuristic Code Search & Synthesis Fallback
-        return self._heuristic_code_answer(query, target_name, tech_info, snippets, findings, cloud_diag, scan_id)
+        return self._heuristic_code_answer(query, target_name, tech_info, snippets, findings, cloud_diag, scan_id, secrets_list)
 
-    def _heuristic_code_answer(self, query: str, target: str, tech_info: dict, snippets: list, findings: list, cloud_diag: list, scan_id: str) -> Dict[str, Any]:
-        """Generates a structured, accurate analysis when offline or when Gemini quota is exceeded."""
+    def _heuristic_code_answer(self, query: str, target: str, tech_info: dict, snippets: list, findings: list, cloud_diag: list, scan_id: str, secrets_list: list = None) -> Dict[str, Any]:
+        """Generates a structured, conversational analysis when Gemini API experiences temporary spikes or is offline."""
+        if secrets_list is None:
+            secrets_list = []
+            for f in findings:
+                ev = f.get("evidence", {})
+                sec_val = ev.get("matched_secret") or ev.get("detected_preview")
+                cat = (f.get("category") or "").lower()
+                tit = (f.get("title") or "").lower()
+                if sec_val and ("secret" in cat or "credential" in cat or "key" in cat or "token" in tit or "secret" in tit or "key" in tit):
+                    secrets_list.append({
+                        "title": f.get("title"),
+                        "severity": f.get("severity"),
+                        "file": ev.get("file"),
+                        "line": ev.get("line"),
+                        "secret_value": sec_val
+                    })
+
         query_lower = query.lower()
         parts = []
 
-        parts.append(f"### 🔍 Deep Code Analysis for: **{target}**")
-        parts.append(f"**Framework:** `{tech_info.get('primary_framework', 'Native Android')}` | **Question:** *\"{query}\"*\n")
+        # Intent 1: Firebase / Cloud link requests
+        if any(w in query_lower for w in ["firebase", "link", "database", "rtdb", "firestore", "bucket", "url", "endpoint"]):
+            parts.append(f"### 🔥 Firebase & Cloud Endpoints for **{target}**\n")
+            
+            fb_targets = []
+            for d in cloud_diag:
+                url = d.get("target_url", "")
+                if url:
+                    fb_targets.append((d.get("service", "Cloud Endpoint"), url, d.get("verdict_badge", "AUDITED"), d.get("details", "")))
+            
+            found_urls = set()
+            for s in snippets:
+                matches = re.findall(r'https?://[a-zA-Z0-9_\-\.]+\.firebaseio\.com', s.get("content", ""))
+                for m in matches:
+                    found_urls.add(m)
+            
+            for f in findings:
+                ev = f.get("evidence", {})
+                txt = f"{f.get('title', '')} {f.get('impact', '')} {ev.get('context_snippet', '')} {ev.get('detected_preview', '')}"
+                matches = re.findall(r'https?://[a-zA-Z0-9_\-\.]+\.firebaseio\.com', txt)
+                for m in matches:
+                    found_urls.add(m)
 
-        if "firebase" in query_lower or "cloud" in query_lower or "bucket" in query_lower or "database" in query_lower:
-            parts.append("#### ☁️ Cloud & Firebase Security Status:")
-            if cloud_diag:
-                for diag in cloud_diag:
-                    parts.append(f"- **{diag.get('service')}:** `{diag.get('target_url')}`")
-                    parts.append(f"  - **Verdict:** `{diag.get('verdict_badge')}` (Status: {diag.get('status_code')})")
-                    parts.append(f"  - *Details:* {diag.get('details')}")
+            if fb_targets or found_urls:
+                parts.append("Bhai, is app ke scan aur source code se ye live Firebase URLs extract hue hain:\n")
+                for svc, url, badge, det in fb_targets:
+                    db_link = url if url.endswith(".json") else f"{url.rstrip('/')}/.json"
+                    parts.append(f"- **{svc}:** `{url}` &bull; Status: **{badge}**")
+                    parts.append(f"  - 🔗 **Direct JSON Endpoint:** [{db_link}]({db_link})")
+                    if det:
+                        parts.append(f"  - *Audit Note:* {det}")
+                
+                for u in found_urls:
+                    json_url = f"{u.rstrip('/')}/.json"
+                    parts.append(f"- **Realtime Database:** `{u}`")
+                    parts.append(f"  - 🔗 **Direct Testing Link:** [{json_url}]({json_url})")
+
+                parts.append("\n#### 🛠️ How to Test Public Access (Curl Command):")
+                sample_url = fb_targets[0][1] if fb_targets else list(found_urls)[0]
+                test_link = sample_url if sample_url.endswith(".json") else f"{sample_url.rstrip('/')}/.json"
+                parts.append("```bash")
+                parts.append(f'curl -s -i "{test_link}"')
+                parts.append("```")
+                parts.append("- **Vulnerable:** Agar response me JSON data (`{...}`) ya `null` aata hai, iska matlab database unauthenticated read ke liye publicly open hai.")
+                parts.append("- **Secure:** Agar response `{\"error\": \"Permission denied\"}` aata hai, to Firebase security rules properly configure hain.\n")
             else:
-                parts.append("No active external Firebase or cloud bucket misconfigurations were detected during this scan.")
-            parts.append("")
+                proj_name = target.replace(".", "-").replace("_", "-").lower()
+                parts.append(f"Scan report me specific `.firebaseio.com` URL hardcoded nahi mila, lekin app ke package ke hisab se standard Firebase endpoints ye hote hain:\n")
+                parts.append(f"- **Projected Realtime Database:** `https://{proj_name}-default-rtdb.firebaseio.com/.json`")
+                parts.append(f"- **Firestore REST API:** `https://firestore.googleapis.com/v1/projects/{proj_name}/databases/(default)/documents`")
+                parts.append(f"- **Cloud Storage Bucket:** `https://firebasestorage.googleapis.com/v0/b/{proj_name}.appspot.com/o`\n")
 
+        # Intent 2: Secret / API Key Inquiries
+        elif any(w in query_lower for w in ["key", "secret", "token", "password", "credential", "api_key", "kya mila", "keys"]):
+            parts.append(f"### 🔑 Discovered API Keys & Secrets for **{target}**\n")
+            if secrets_list:
+                parts.append(f"Is app me **{len(secrets_list)}** hardcoded secrets aur credentials mile hain:\n")
+                parts.append("| Type / Finding | Leaked Key Value | File Location | Line |")
+                parts.append("| :--- | :--- | :--- | :--- |")
+                for s in secrets_list:
+                    loc = s.get('file') or 'Configuration'
+                    line = s.get('line') or '-'
+                    parts.append(f"| **{s.get('title')}** | `{s.get('secret_value')}` | `{loc}` | `{line}` |")
+                parts.append("\n> ⚠️ **Security Risk:** Hardcoded API keys ko koi bhi APK decompile karke extract kar sakta hai. Sensitive APIs ko backend proxy ke peeche rakhein aur Cloud Console par key restrictions lagayein.\n")
+            else:
+                parts.append("Is audit me koi critical hardcoded API keys ya secrets flag nahi hue hain.\n")
+
+        # Intent 3: Billing / Subscription / In-App Purchases
+        elif any(w in query_lower for w in ["billing", "subscription", "payment", "bypass", "purchase", "premium", "pro"]):
+            parts.append(f"### 💳 In-App Billing & Subscription Security Analysis for **{target}**\n")
+            parts.append("#### 1. Architecture Overview:")
+            parts.append("Android applications Google Play Billing Library (`BillingClient`) use karti hain premium features aur subscriptions unlock karne ke liye.")
+            parts.append("- **Client-Side Flow:** App `BillingClient.queryPurchasesAsync()` ya `PurchasesUpdatedListener` use karke purchase state check karti hai.")
+            parts.append("- **Vulnerability Vector:** Agar app sirf client-side boolean check (`isPremium = true` ya `purchase.getPurchaseState() == 1`) par depend karti hai bina server validation ke, to use easily bypass kiya ja sakta hai.\n")
+            parts.append("#### 2. Reverse Engineering / Bypass Points:")
+            parts.append("1. **Frida Dynamic Hooking:** Runtime par `BillingClient` ke `queryPurchasesAsync` callback ya entitlement methods ko hook karke `PURCHASED` state inject karna.")
+            parts.append("2. **Smali Bytecode Patching:** `classes.dex` me check method ko `const/4 v0, 0x1; return v0` se replace karke APK resign karna.\n")
+            parts.append("#### 3. Secure Remediation:")
+            parts.append("- **Always Verify on Server:** Client-side tokens par kabhi trust na karein. `purchaseToken` ko apne backend server par bhejein aur Google Play Developer API (`purchases.subscriptionsv2.get`) se backend-to-backend verify karein.\n")
+
+        # Intent 4: General / Conversational fallback
+        else:
+            parts.append(f"### 🛡️ Security Audit Analysis for **{target}**")
+            parts.append(f"**Question:** *\"{query}\"*\n")
+            parts.append(f"- **Primary Framework:** `{tech_info.get('primary_framework', 'Native Android')}`")
+            parts.append(f"- **Total Security Findings:** {len(findings)} issues identified.\n")
+
+        # Relevant snippets if any matched
         if snippets:
-            parts.append(f"#### 📂 Relevant Decompiled Source Snippets ({len(snippets)} matched files):")
-            for idx, snip in enumerate(snippets, 1):
+            parts.append(f"#### 📂 Relevant Decompiled Source Snippets ({len(snippets)} matched):")
+            for idx, snip in enumerate(snippets[:3], 1):
                 parts.append(f"**{idx}. File: `{snip['file']}` (Lines {snip['line_start']}-{snip['line_end']})**")
                 parts.append(f"```java\n{snip['content'].strip()}\n```\n")
-        else:
-            parts.append("ℹ️ *No direct matching source code lines were found in the decompiled classes for this query. The app may be using native `.so` libraries or standard SDK defaults.*")
 
-        # Related findings
-        matching_findings = [f for f in findings if any(k in f.get('title', '').lower() or k in f.get('category', '').lower() for k in query_lower.split())]
-        if matching_findings:
-            parts.append("#### ⚠️ Related Vulnerability Findings from Audit:")
-            for mf in matching_findings[:3]:
-                parts.append(f"- **[{mf.get('severity')}] {mf.get('title')}**")
-                parts.append(f"  - *Impact:* {mf.get('impact') or mf.get('exposure')}")
-                parts.append(f"  - *Remediation:* {mf.get('remediation')}")
+        parts.append("> 💡 *Note: Google Gemini Flash experienced high API demand spikes; synthesized using Decryptor Deep Security Engine.*")
 
         return {
             "answer": "\n".join(parts),

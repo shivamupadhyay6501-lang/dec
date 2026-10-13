@@ -10,6 +10,21 @@ if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
     except Exception:
         pass
 
+# Auto-load .env file
+env_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+if os.path.exists(env_file):
+    try:
+        with open(env_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    k, v = k.strip(), v.strip()
+                    if k and not os.environ.get(k):
+                        os.environ[k] = v
+    except Exception:
+        pass
+
 def main():
     parser = argparse.ArgumentParser(description="APK Security Intelligence & Executive Auditor")
     default_port = int(os.environ.get("PORT", 8000))

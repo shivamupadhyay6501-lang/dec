@@ -13,6 +13,25 @@ from fastapi.staticfiles import StaticFiles
 # Add project root to sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Auto-load .env configuration at server startup
+def _load_env_file():
+    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env_path = os.path.join(root_dir, ".env")
+    if os.path.exists(env_path):
+        try:
+            with open(env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        k, v = k.strip(), v.strip()
+                        if k and not os.environ.get(k):
+                            os.environ[k] = v
+        except Exception:
+            pass
+
+_load_env_file()
+
 from core.orchestrator import AuditOrchestrator
 from core.code_chat import AppCodeChatAssistant
 from core.r2_storage import CloudflareR2Storage
@@ -648,6 +667,10 @@ def generate_report_html(scan: dict, auto_print: bool = False) -> str:
                 📁 <strong>{f.get('category')}</strong> &bull; 📍 <code>{f.get('evidence', {}).get('file', 'Configuration')}{':' + str(f.get('evidence', {}).get('line')) if f.get('evidence', {}).get('line') else ''}</code>
             </div>
             <p style="font-size: 14px; margin-bottom: 8px;">{f.get('impact')}</p>
+            {f'''<div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 6px; padding: 10px 12px; margin: 8px 0; font-family: 'JetBrains Mono', monospace; font-size: 12px; word-break: break-all; color: #fca5a5;">
+                <span style="font-weight: 800; color: #ef4444; display: block; margin-bottom: 4px;">🔑 DISCOVERED LEAKED SECRET / CREDENTIAL VALUE:</span>
+                <code>{f.get("evidence", {}).get("matched_secret") or f.get("evidence", {}).get("detected_preview")}</code>
+            </div>''' if (f.get("evidence", {}).get("matched_secret") or (f.get("evidence", {}).get("detected_preview") and "credential" in (f.get("category") or "").lower()) or (f.get("evidence", {}).get("detected_preview") and "secret" in (f.get("category") or "").lower())) else ''}
             {f'<pre class="code-box"><code>{f.get("evidence", {}).get("context_snippet", "")}</code></pre>' if f.get("evidence", {}).get("context_snippet") else ''}
             <div class="remediation-box">
                 <strong>💡 Remediation:</strong> {f.get('remediation')}
@@ -668,7 +691,8 @@ def generate_report_html(scan: dict, auto_print: bool = False) -> str:
 # --- Interactive Code Chat Endpoints ---
 @app.post("/api/chat/app")
 def chat_with_app(req: ChatAppRequest):
-    result = chat_assistant.answer_query(req.scan_id, req.query, gemini_api_key=req.gemini_api_key)
+    api_key = req.gemini_api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    result = chat_assistant.answer_query(req.scan_id, req.query, gemini_api_key=api_key)
     return JSONResponse(content=result)
 
 @app.get("/api/chat/prompts/{scan_id}")

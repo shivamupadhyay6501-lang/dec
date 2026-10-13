@@ -228,11 +228,8 @@ class SecretClassifier:
                 line_no = text[:start_pos].count("\n") + 1
                 matched_val = match.group(0)
 
-                # Obfuscate secret in evidence preview
-                if len(matched_val) > 8 and rule["severity"] in ["CRITICAL", "HIGH"]:
-                    preview = matched_val[:4] + "..." + matched_val[-4:]
-                else:
-                    preview = matched_val
+                # Capture the exact matched secret token (prefer group 1 if captured, otherwise full match)
+                exact_token = match.group(1) if match.groups() else matched_val
 
                 # Get context snippet (2 lines before and after)
                 start_line_idx = max(0, line_no - 3)
@@ -249,7 +246,8 @@ class SecretClassifier:
                     "evidence": {
                         "file": file_path,
                         "line": line_no,
-                        "detected_preview": preview,
+                        "matched_secret": exact_token,
+                        "detected_preview": matched_val,
                         "context_snippet": context_snippet,
                         "entropy": self.calculate_shannon_entropy(matched_val)
                     },
