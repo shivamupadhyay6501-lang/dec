@@ -719,7 +719,14 @@ function renderFindingsList() {
         card.className = 'finding-card-item';
 
         const ev = f.evidence || {};
-        const codeSnippet = ev.context_snippet ? `<pre class="code-viewer"><code>${escapeHtml(ev.context_snippet)}</code></pre>` : '';
+        const codeSnippet = ev.context_snippet ? `
+            <details style="margin: 8px 0; font-size: 12px; color: var(--text-muted);">
+                <summary style="cursor: pointer; color: #64748b; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; user-select: none;">
+                    🔍 View Source Code Evidence Reference
+                </summary>
+                <pre class="code-viewer" style="margin-top: 6px; max-height: 220px; overflow-y: auto;"><code>${escapeHtml(ev.context_snippet)}</code></pre>
+            </details>
+        ` : '';
         const loc = ev.file ? `${ev.file}${ev.line ? ':' + ev.line : ''}` : 'Target Configuration';
 
         const secretVal = ev.matched_secret || (ev.detected_preview && (

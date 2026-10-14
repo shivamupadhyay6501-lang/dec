@@ -249,8 +249,7 @@ Instructions:
 3. If the user asks about API keys, tokens, or credentials found in the app, list them clearly with their exact values and location.
 4. If the user asks about reverse engineering, payment flows, subscriptions, logic bypasses, or decompiled code, give a thorough, clear explanation with practical steps.
 5. Reference specific file names and line numbers from the decompiled snippets when relevant.
-6. Provide Markdown code blocks with syntax highlighting where helpful.
-7. Always provide an insightful, directly actionable answer to the user's intent instead of just pasting raw code."""
+7. NEVER dump raw decompiled code files or entire classes. Only include short 1-2 line code references if strictly necessary. Show exact API keys, secrets, links, and solutions cleanly and authoritatively."""
 
             for model_name in candidate_models:
                 try:
@@ -392,10 +391,10 @@ Instructions:
             parts.append(f"- **Primary Framework:** `{tech_info.get('primary_framework', 'Native Android')}`")
             parts.append(f"- **Total Security Findings:** {len(findings)} issues identified.\n")
 
-        # Relevant snippets if any matched
-        if snippets:
-            parts.append(f"#### 📂 Relevant Decompiled Source Snippets ({len(snippets)} matched):")
-            for idx, snip in enumerate(snippets[:3], 1):
+        # Only show source code snippets if user explicitly requested code
+        if snippets and any(w in query_lower for w in ["show code", "code dikha", "source code", "snippet", "classes"]):
+            parts.append(f"#### 📂 Requested Source Code Snippets ({len(snippets[:2])} matched):")
+            for idx, snip in enumerate(snippets[:2], 1):
                 parts.append(f"**{idx}. File: `{snip['file']}` (Lines {snip['line_start']}-{snip['line_end']})**")
                 parts.append(f"```java\n{snip['content'].strip()}\n```\n")
 

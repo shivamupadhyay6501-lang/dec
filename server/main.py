@@ -416,6 +416,62 @@ def generate_report_html(scan: dict, auto_print: bool = False) -> str:
     else:
         cloud_diag_html = '<div class="card" style="color: var(--text-muted);">No external cloud endpoints detected for passive diagnostics.</div>'
 
+    # Extract all discovered secrets & credentials for dedicated high-visibility display
+    leaked_secrets = []
+    if findings:
+        for f in findings:
+            ev = f.get('evidence', {}) or {}
+            sec_val = ev.get('matched_secret')
+            if not sec_val and ev.get('detected_preview'):
+                low_cat = (f.get('category') or '').lower()
+                low_tit = (f.get('title') or '').lower()
+                if any(k in low_cat or k in low_tit for k in ['secret', 'credential', 'key', 'token']):
+                    sec_val = ev.get('detected_preview')
+            if sec_val:
+                f_loc = ev.get('file', 'Configuration')
+                if ev.get('line'):
+                    f_loc = f"{f_loc}:{ev.get('line')}"
+                leaked_secrets.append({
+                    "title": f.get('title', 'Secret'),
+                    "severity": f.get('severity', 'CRITICAL'),
+                    "location": f_loc,
+                    "secret": sec_val
+                })
+
+    leaked_secrets_html = ""
+    if leaked_secrets:
+        sec_rows = []
+        for s in leaked_secrets:
+            s_title = html.escape(str(s['title']))
+            s_sev = html.escape(str(s['severity']))
+            s_sev_cls = s_sev.lower()[:4]
+            s_loc = html.escape(str(s['location']))
+            s_val = html.escape(str(s['secret']))
+            sec_rows.append(f"""
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.06);">
+                    <td style="padding: 10px 12px; font-weight: 700; color: #f8fafc;">{s_title}</td>
+                    <td style="padding: 10px 12px;"><span class="badge-pill {s_sev_cls}">{s_sev}</span></td>
+                    <td style="padding: 10px 12px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted);">{s_loc}</td>
+                    <td style="padding: 10px 12px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #fca5a5; word-break: break-all; background: rgba(0,0,0,0.3); border-radius: 4px;"><code>{s_val}</code></td>
+                </tr>""")
+        leaked_secrets_html = f"""
+        <h2>🔑 Discovered Leaked API Keys & Secrets ({len(leaked_secrets)})</h2>
+        <div class="card" style="border-left: 4px solid #ef4444; background: rgba(239, 68, 68, 0.04); overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px; text-align: left;">
+                <thead>
+                    <tr style="border-bottom: 2px solid rgba(239, 68, 68, 0.3); color: #f87171; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">
+                        <th style="padding: 8px 12px;">Type / Finding</th>
+                        <th style="padding: 8px 12px;">Severity</th>
+                        <th style="padding: 8px 12px;">File & Line</th>
+                        <th style="padding: 8px 12px;">Discovered Key / Secret Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {''.join(sec_rows)}
+                </tbody>
+            </table>
+        </div>"""
+
     if findings:
         f_blocks = []
         for f in findings:
@@ -450,7 +506,13 @@ def generate_report_html(scan: dict, auto_print: bool = False) -> str:
             snippet_box = ""
             if ev.get('context_snippet'):
                 esc_snippet = html.escape(str(ev.get('context_snippet', '')))
-                snippet_box = f'<pre class="code-box"><code>{esc_snippet}</code></pre>'
+                snippet_box = f"""
+            <details style="margin: 8px 0; font-size: 12px; color: var(--text-muted);">
+                <summary style="cursor: pointer; color: #64748b; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; user-select: none;">
+                    🔍 Source Code Evidence Reference
+                </summary>
+                <pre class="code-box" style="margin-top: 6px;"><code>{esc_snippet}</code></pre>
+            </details>"""
 
             f_blocks.append(f"""
         <div class="card">
@@ -737,6 +799,8 @@ def generate_report_html(scan: dict, auto_print: bool = False) -> str:
             </div>
             {exec_summary_html}
         </div>
+
+        {leaked_secrets_html}
 
         <h2>🔥 Top Remediation Priorities</h2>
         {priorities_html}
