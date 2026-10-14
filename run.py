@@ -41,7 +41,8 @@ def main():
         print(f"🌐 Dashboard URL: http://localhost:{args.port}")
         print(f"📚 Swagger Docs:  http://localhost:{args.port}/docs")
         print(f"=======================================================\n")
-        uvicorn.run("server.main:app", host=args.host, port=args.port, reload=True)
+        is_cloud = bool(os.environ.get("RENDER")) or os.environ.get("ENV") == "production"
+        uvicorn.run("server.main:app", host=args.host, port=args.port, reload=not is_cloud)
 
     elif args.command == "scan":
         if not args.target:

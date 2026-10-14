@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import html
 import asyncio
 import logging
 from typing import Optional
@@ -367,6 +368,110 @@ def generate_report_html(scan: dict, auto_print: bool = False) -> str:
 
     auto_print_js = "<script>window.addEventListener('load', () => { setTimeout(() => window.print(), 600); });</script>" if auto_print else ""
 
+    raw_summary = scan.get('executive_summary', 'No briefing provided.')
+    exec_summary_html = html.escape(str(raw_summary)).replace('\n', '<br>')
+
+    if priorities:
+        p_blocks = []
+        for idx, p in enumerate(priorities):
+            p_num = p.get('priority', idx + 1)
+            p_title = html.escape(str(p.get('title', '')))
+            p_sev = html.escape(str(p.get('severity', 'CRITICAL')))
+            p_imp = html.escape(str(p.get('potential_impact', '')))
+            p_act = html.escape(str(p.get('action_required', '')))
+            p_blocks.append(f"""
+        <div class="card" style="border-left: 4px solid #ef4444;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <strong style="font-size: 15px;">#{p_num} — {p_title}</strong>
+                <span class="badge-pill crit">{p_sev}</span>
+            </div>
+            <p style="margin: 6px 0; color: var(--text-muted); font-size: 13px;"><strong>Impact:</strong> {p_imp}</p>
+            <p style="margin: 4px 0; color: #34d399; font-size: 13px;"><strong>Action:</strong> {p_act}</p>
+        </div>""")
+        priorities_html = "\n".join(p_blocks)
+    else:
+        priorities_html = '<div class="card" style="color: var(--text-muted);">🎉 No urgent critical security blockades found.</div>'
+
+    cloud_diag = scan.get('cloud_diagnostics', [])
+    if cloud_diag:
+        d_blocks = []
+        for d in cloud_diag:
+            is_vuln = d.get('verdict') == 'VULNERABLE'
+            is_sec = d.get('verdict') == 'SECURE'
+            border_color = '#ef4444' if is_vuln else ('#10b981' if is_sec else '#94a3b8')
+            badge_class = 'crit' if is_vuln else ('low' if is_sec else 'info')
+            svc = html.escape(str(d.get('service', '')))
+            t_url = html.escape(str(d.get('target_url', '')))
+            v_badge = html.escape(str(d.get('verdict_badge', '')))
+            details = html.escape(str(d.get('details', '')))
+            d_blocks.append(f"""
+        <div class="card" style="border-left: 4px solid {border_color};">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <strong style="font-size: 14px;">{svc} — <code>{t_url}</code></strong>
+                <span class="badge-pill {badge_class}">{v_badge}</span>
+            </div>
+            <p style="margin: 4px 0; font-size: 13px; color: var(--text-muted);">{details}</p>
+        </div>""")
+        cloud_diag_html = "\n".join(d_blocks)
+    else:
+        cloud_diag_html = '<div class="card" style="color: var(--text-muted);">No external cloud endpoints detected for passive diagnostics.</div>'
+
+    if findings:
+        f_blocks = []
+        for f in findings:
+            f_title = html.escape(str(f.get('title', '')))
+            f_sev = html.escape(str(f.get('severity', 'INFO')))
+            sev_badge_class = f_sev.lower()[:4]
+            f_cat = html.escape(str(f.get('category', '')))
+            ev = f.get('evidence', {}) or {}
+            file_loc = ev.get('file', 'Configuration')
+            line_no = ev.get('line')
+            loc_str = f"{file_loc}:{line_no}" if line_no else str(file_loc)
+            loc_escaped = html.escape(loc_str)
+            impact_escaped = html.escape(str(f.get('impact', '')))
+            remediation_escaped = html.escape(str(f.get('remediation', 'Follow secure coding practices.')))
+
+            sec_val = ev.get('matched_secret')
+            if not sec_val and ev.get('detected_preview'):
+                low_cat = (f.get('category') or '').lower()
+                low_tit = (f.get('title') or '').lower()
+                if any(k in low_cat or k in low_tit for k in ['secret', 'credential', 'key', 'token']):
+                    sec_val = ev.get('detected_preview')
+
+            sec_box = ""
+            if sec_val:
+                esc_secret = html.escape(str(sec_val))
+                sec_box = f"""
+            <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 6px; padding: 10px 12px; margin: 8px 0; font-family: 'JetBrains Mono', monospace; font-size: 12px; word-break: break-all; color: #fca5a5;">
+                <span style="font-weight: 800; color: #ef4444; display: block; margin-bottom: 4px;">🔑 DISCOVERED LEAKED SECRET / CREDENTIAL VALUE:</span>
+                <code>{esc_secret}</code>
+            </div>"""
+
+            snippet_box = ""
+            if ev.get('context_snippet'):
+                esc_snippet = html.escape(str(ev.get('context_snippet', '')))
+                snippet_box = f'<pre class="code-box"><code>{esc_snippet}</code></pre>'
+
+            f_blocks.append(f"""
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <strong style="font-size: 15px;">{f_title}</strong>
+                <span class="badge-pill {sev_badge_class}">{f_sev}</span>
+            </div>
+            <div style="color: var(--text-muted); font-size: 12px; margin-bottom: 8px;">
+                📁 <strong>{f_cat}</strong> &bull; 📍 <code>{loc_escaped}</code>
+            </div>
+            <p style="font-size: 14px; margin-bottom: 8px;">{impact_escaped}</p>
+            {sec_box}
+            {snippet_box}
+            <div class="remediation-box">
+                <strong>💡 Remediation:</strong> {remediation_escaped}
+            </div>
+        </div>""")
+        findings_html = "\n".join(f_blocks)
+    else:
+        findings_html = '<div class="card" style="color: var(--text-muted);">No security issues detected.</div>'
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -630,53 +735,17 @@ def generate_report_html(scan: dict, auto_print: bool = False) -> str:
             <div style="font-size: 11px; color: var(--primary); font-weight: 700; margin-bottom: 8px;">
                 SYNTHESIZED BY {ai_engine.upper()}
             </div>
-            {scan.get('executive_summary', 'No briefing provided.').replace(chr(10), '<br>')}
+            {exec_summary_html}
         </div>
 
         <h2>🔥 Top Remediation Priorities</h2>
-        {''.join([f'''
-        <div class="card" style="border-left: 4px solid #ef4444;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <strong style="font-size: 15px;">#{p.get('priority', idx+1)} — {p.get('title')}</strong>
-                <span class="badge-pill crit">{p.get('severity', 'CRITICAL')}</span>
-            </div>
-            <p style="margin: 6px 0; color: var(--text-muted); font-size: 13px;"><strong>Impact:</strong> {p.get('potential_impact')}</p>
-            <p style="margin: 4px 0; color: #34d399; font-size: 13px;"><strong>Action:</strong> {p.get('action_required')}</p>
-        </div>
-        ''' for idx, p in enumerate(priorities)]) if priorities else '<div class="card" style="color: var(--text-muted);">🎉 No urgent critical security blockades found.</div>'}
+        {priorities_html}
 
         <h2>☁️ Cloud & Firebase Posture Diagnostics</h2>
-        {''.join([f'''
-        <div class="card" style="border-left: 4px solid {'#ef4444' if d.get('verdict') == 'VULNERABLE' else ('#10b981' if d.get('verdict') == 'SECURE' else '#94a3b8')};">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                <strong style="font-size: 14px;">{d.get('service')} — <code>{d.get('target_url')}</code></strong>
-                <span class="badge-pill {'crit' if d.get('verdict') == 'VULNERABLE' else ('low' if d.get('verdict') == 'SECURE' else 'info')}">{d.get('verdict_badge')}</span>
-            </div>
-            <p style="margin: 4px 0; font-size: 13px; color: var(--text-muted);">{d.get('details')}</p>
-        </div>
-        ''' for d in scan.get('cloud_diagnostics', [])]) if scan.get('cloud_diagnostics') else '<div class="card" style="color: var(--text-muted);">No external cloud endpoints detected for passive diagnostics.</div>'}
+        {cloud_diag_html}
 
         <h2>🔍 Detailed Security Findings ({len(findings)})</h2>
-        {''.join([f'''
-        <div class="card">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                <strong style="font-size: 15px;">{f.get('title')}</strong>
-                <span class="badge-pill {(f.get('severity', 'info')).lower()[:4]}">{f.get('severity')}</span>
-            </div>
-            <div style="color: var(--text-muted); font-size: 12px; margin-bottom: 8px;">
-                📁 <strong>{f.get('category')}</strong> &bull; 📍 <code>{f.get('evidence', {}).get('file', 'Configuration')}{':' + str(f.get('evidence', {}).get('line')) if f.get('evidence', {}).get('line') else ''}</code>
-            </div>
-            <p style="font-size: 14px; margin-bottom: 8px;">{f.get('impact')}</p>
-            {f'''<div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 6px; padding: 10px 12px; margin: 8px 0; font-family: 'JetBrains Mono', monospace; font-size: 12px; word-break: break-all; color: #fca5a5;">
-                <span style="font-weight: 800; color: #ef4444; display: block; margin-bottom: 4px;">🔑 DISCOVERED LEAKED SECRET / CREDENTIAL VALUE:</span>
-                <code>{f.get("evidence", {}).get("matched_secret") or f.get("evidence", {}).get("detected_preview")}</code>
-            </div>''' if (f.get("evidence", {}).get("matched_secret") or (f.get("evidence", {}).get("detected_preview") and "credential" in (f.get("category") or "").lower()) or (f.get("evidence", {}).get("detected_preview") and "secret" in (f.get("category") or "").lower())) else ''}
-            {f'<pre class="code-box"><code>{f.get("evidence", {}).get("context_snippet", "")}</code></pre>' if f.get("evidence", {}).get("context_snippet") else ''}
-            <div class="remediation-box">
-                <strong>💡 Remediation:</strong> {f.get('remediation')}
-            </div>
-        </div>
-        ''' for f in findings]) if findings else '<div class="card" style="color: var(--text-muted);">No security issues detected.</div>'}
+        {findings_html}
 
         <div class="watermark">
             <p>Generated by Decryptor Automated Security Intelligence Engine &bull; Scan ID: <code>{scan.get('scan_id')}</code></p>
